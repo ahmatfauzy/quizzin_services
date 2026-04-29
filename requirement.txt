@@ -1,2 +1,11 @@
 fastapi[standard]
 sqlalchemy
+pydantic-settings
+authlib
+pyjwt
+google-auth
+psycopg2-binary
+alembic
+httpx
+itsdangerous
+requests
