@@ -24,26 +24,22 @@ Endpoint dasar untuk memastikan server berjalan dengan baik.
 
 ---
 
-## 2. Authentication
+## 2. Authentication (Google OAuth)
 
 ### Google OAuth - Mobile Login
 Endpoint ini digunakan oleh aplikasi Mobile (Flutter) setelah mendapatkan `id_token` dari SDK Google Sign-In di sisi client.
 
 - **URL:** `/auth/google/mobile`
 - **Method:** `POST`
-- **Auth Required:** No
 
 #### Request Body
-- **Content-Type:** `application/json`
 ```json
 {
-  "token": "string (Google ID Token dari Frontend Mobile)"
+  "token": "string"
 }
 ```
 
-#### Success Response
-- **Code:** `200 OK`
-- **Content:**
+#### Success Response (200 OK)
 ```json
 {
   "access_token": "eyJhbG...",
@@ -54,71 +50,123 @@ Endpoint ini digunakan oleh aplikasi Mobile (Flutter) setelah mendapatkan `id_to
     "picture": "https://url-foto...",
     "id": 1,
     "is_active": true,
+    "is_verified": true,
     "created_at": "2026-04-29T16:00:00.000",
     "updated_at": null
   }
 }
 ```
 
-#### Error Response
-- **Code:** `401 Unauthorized`
-- **Content:**
+---
+
+### Google OAuth - Web Login
+Endpoint ini digunakan oleh aplikasi Web (React/Next.js) menggunakan Implicit / Authorization Code Flow.
+
+- **URL:** `/auth/google/web`
+- **Method:** `POST`
+
+#### Request Body
 ```json
 {
-  "detail": "Invalid Google token"
+  "token": "string (Optional)",
+  "code": "string (Optional)"
 }
 ```
 
 ---
 
-### Google OAuth - Web Login Flow
-Endpoint ini memulai alur OAuth 2.0 untuk aplikasi Web. Akan me-redirect browser pengguna langsung ke halaman Login Google.
+## 3. Authentication (Credentials - Form Login)
 
-- **URL:** `/auth/google/web/login`
-- **Method:** `GET`
-- **Auth Required:** No
+### Register User Baru
+Endpoint untuk mendaftarkan user baru dengan email dan password.
 
-#### Success Response
-- **Code:** `302 Found` (Redirect)
-- **Description:** Browser akan diarahkan secara otomatis ke URL Google Authorization.
+- **URL:** `/auth/register`
+- **Method:** `POST`
+
+#### Request Body
+```json
+{
+  "full_name": "John Doe",
+  "email": "johndoe@example.com",
+  "password": "strongpassword123"
+}
+```
+
+#### Success Response (200 OK)
+```json
+{
+  "message": "User registered successfully. Please verify your email.",
+  "verification_token": "eyJhbG... (hanya untuk testing)"
+}
+```
+
+#### Error Response (400 Bad Request)
+```json
+{
+  "detail": "Email already registered"
+}
+```
 
 ---
 
-### Google OAuth - Web Callback
-Endpoint ini adalah tujuan *callback* (Redirect URI) yang diakses oleh Google setelah pengguna berhasil login di halaman Web Google. Backend akan secara otomatis menukar *Authorization Code* dengan *Access Token*, mendaftarkan/mencari user di database, lalu mengembalikan token aplikasi (JWT).
+### Login Email & Password
+Endpoint untuk login bagi pengguna yang sudah mendaftar menggunakan email & password dan telah memverifikasi emailnya.
 
-- **URL:** `/auth/google/web/callback`
+- **URL:** `/auth/login`
+- **Method:** `POST`
+
+#### Request Body
+```json
+{
+  "email": "johndoe@example.com",
+  "password": "strongpassword123"
+}
+```
+
+#### Success Response (200 OK)
+Sama seperti Google Login, mengembalikan `access_token` dan data `user`.
+
+#### Error Response
+- **401 Unauthorized:** Invalid email or password
+- **403 Forbidden:** Please verify your email first
+
+---
+
+### Resend Email Verification
+Endpoint untuk meminta ulang token verifikasi jika yang sebelumnya kedaluwarsa atau hilang.
+
+- **URL:** `/auth/resend-verification`
+- **Method:** `POST`
+
+#### Request Body
+```json
+{
+  "email": "johndoe@example.com"
+}
+```
+
+#### Success Response (200 OK)
+```json
+{
+  "message": "Verification email resent",
+  "verification_token": "eyJhbG... (hanya untuk testing)"
+}
+```
+
+---
+
+### Verify Email Token
+Endpoint untuk memvalidasi token verifikasi dari email user. Biasanya berupa Link yang diklik user dari kotak masuk emailnya.
+
+- **URL:** `/auth/verify-email?token={token}`
 - **Method:** `GET`
-- **Auth Required:** No
 
 #### Query Parameters
-- `code` : `string` (Otomatis dikirim oleh Google)
-- `state` : `string` (Otomatis dikirim oleh Google)
+- `token`: String (Diambil dari link email)
 
-#### Success Response
-- **Code:** `200 OK`
-- **Content:**
+#### Success Response (200 OK)
 ```json
 {
-  "access_token": "eyJhbG...",
-  "token_type": "bearer",
-  "user": {
-    "email": "user@gmail.com",
-    "full_name": "Nama User",
-    "picture": "https://url-foto...",
-    "id": 1,
-    "is_active": true,
-    "created_at": "2026-04-29T16:00:00.000",
-    "updated_at": null
-  }
-}
-```
-
-#### Error Response
-- **Code:** `400 Bad Request`
-- **Content:**
-```json
-{
-  "detail": "No user info found"
+  "message": "Email verified successfully. You can now login."
 }
 ```

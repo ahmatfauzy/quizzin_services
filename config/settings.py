@@ -16,7 +16,16 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str = ""
     GOOGLE_MOBILE_CLIENT_ID: str = ""
     
+    # Local/App
+    URL_BASE: str = "http://127.0.0.1:8000"
+    
+    # SMTP Configuration
+    RESEND_API_KEY: str = ""
+    RESEND_SENDER_EMAIL: str = ""
+    RESEND_SENDER_NAME: str = "Quizzin"
+    
     class Config:
         env_file = ".env"
+        extra = "ignore"
 
 settings = Settings()

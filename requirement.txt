@@ -9,3 +9,6 @@ alembic
 httpx
 itsdangerous
 requests
+passlib[bcrypt]
+email-validator
+resend
