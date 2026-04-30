@@ -1,6 +1,6 @@
-# Smart Tutor API Documentation
+# Quizzin API Documentation
 
-Dokumentasi ini berisi daftar endpoint API yang tersedia di Smart Tutor backend. Karena menggunakan FastAPI, kamu juga dapat melihat dokumentasi interaktif secara langsung dengan mengakses `/docs` (Swagger UI) atau `/redoc` pada browser ketika server berjalan.
+Dokumentasi ini berisi daftar endpoint API yang tersedia di Quizzin backend. Karena menggunakan FastAPI, kamu juga dapat melihat dokumentasi interaktif secara langsung dengan mengakses `/docs` (Swagger UI) atau `/redoc` pada browser ketika server berjalan.
 
 ---
 
@@ -18,7 +18,7 @@ Endpoint dasar untuk memastikan server berjalan dengan baik.
 - **Content:**
   ```json
   {
-    "message": "Welcome to Smart Tutor API"
+    "message": "Welcome to Quizzin API"
   }
   ```
 

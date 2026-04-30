@@ -1,28 +1,28 @@
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "Smart Tutor API"
+    PROJECT_NAME: str = "Quizzin API"
     
     # Database
-    DATABASE_URL: str = "postgresql://user:password@localhost/dbname"
+    DATABASE_URL: str
     
     # JWT
-    SECRET_KEY: str = "your-secret-key-here"
-    ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
+    SECRET_KEY: str
+    ALGORITHM: str
+    ACCESS_TOKEN_EXPIRE_MINUTES: int
     
     # Google OAuth
-    GOOGLE_CLIENT_ID: str = ""
-    GOOGLE_CLIENT_SECRET: str = ""
-    GOOGLE_MOBILE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_ID: str
+    GOOGLE_CLIENT_SECRET: str
+    GOOGLE_MOBILE_CLIENT_ID: str
     
     # Local/App
-    URL_BASE: str = "http://127.0.0.1:8000"
+    URL_BASE: str
     
     # SMTP Configuration
-    RESEND_API_KEY: str = ""
-    RESEND_SENDER_EMAIL: str = ""
-    RESEND_SENDER_NAME: str = "Quizzin"
+    RESEND_API_KEY: str
+    RESEND_SENDER_EMAIL: str
+    RESEND_SENDER_NAME: str
     
     class Config:
         env_file = ".env"
