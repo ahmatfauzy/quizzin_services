@@ -13,3 +13,4 @@ passlib[bcrypt]
 email-validator
 resend
 a2wsgi
+cloudinary
