@@ -2,9 +2,16 @@
 
 1. Buat virtual environment dan aktifkan
 
+Linux: 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
+```
+
+Windows: 
+```bash
+py -3 -m venv .venv
+.venv\Scripts\activate
 ```
 
 2. Install dependencies
