@@ -1,10 +1,8 @@
 from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
-from routes import auth
 from database.database import engine, Base
 from config.settings import settings
-
-# Create tables
+from routes import auth, document
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Quizzin API")
@@ -13,6 +11,7 @@ app = FastAPI(title="Quizzin API")
 app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
 app.include_router(auth.router)
+app.include_router(document.router)
 
 @app.get("/")
 def read_root():

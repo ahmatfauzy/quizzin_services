@@ -14,3 +14,5 @@ email-validator
 resend
 a2wsgi
 cloudinary
+pymupdf
+python-multipart
