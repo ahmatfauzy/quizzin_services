@@ -170,3 +170,85 @@ Endpoint untuk memvalidasi token verifikasi dari email user. Biasanya berupa Lin
   "message": "Email verified successfully. You can now login."
 }
 ```
+
+---
+
+## 4. Document Processing
+
+### Upload Document (PDF)
+Endpoint untuk mengunggah file PDF. File akan divalidasi, diupload ke Cloudinary, kemudian teksnya diekstrak menggunakan PyMuPDF dan disimpan ke database.
+
+- **URL:** `/documents/upload`
+- **Method:** `POST`
+- **Auth Required:** Yes (Bearer Token)
+- **Content-Type:** `multipart/form-data`
+
+#### Request Body (Form Data)
+| Field   | Type   | Required | Description                       |
+|---------|--------|----------|-----------------------------------|
+| `title` | string | ✅       | Judul dokumen                     |
+| `file`  | file   | ✅       | File PDF (maks. 10MB)             |
+
+#### Headers
+```
+Authorization: Bearer <access_token>
+```
+
+#### Success Response (200 OK)
+```json
+{
+  "id": 1,
+  "user_id": 1,
+  "title": "Modul Basis Data",
+  "file_url": "https://res.cloudinary.com/.../quizzin/documents/modul.pdf",
+  "file_type": "application/pdf",
+  "file_size": 2048576,
+  "preview_text": "BAB 1 - Pengantar Basis Data\nBasis data adalah kumpulan data yang...",
+  "created_at": "2026-05-01T12:00:00.000",
+  "updated_at": null
+}
+```
+
+#### Error Responses
+
+**400 Bad Request — Tipe file tidak valid:**
+```json
+{
+  "detail": "Only PDF files are supported"
+}
+```
+
+**400 Bad Request — File terlalu besar:**
+```json
+{
+  "detail": "File too large. Max size is 10MB"
+}
+```
+
+**401 Unauthorized — Token tidak valid/missing:**
+```json
+{
+  "detail": "Could not validate credentials"
+}
+```
+
+**500 Internal Server Error — Gagal upload ke Cloudinary:**
+```json
+{
+  "detail": "Error uploading to storage: ..."
+}
+```
+
+**500 Internal Server Error — Gagal ekstraksi teks:**
+```json
+{
+  "detail": "Error extracting text from PDF: ..."
+}
+```
+
+#### Catatan
+- Hanya file PDF yang diterima (`application/pdf`).
+- Maksimal ukuran file: **10MB**.
+- Teks diekstrak otomatis dari semua halaman PDF menggunakan PyMuPDF.
+- `preview_text` berisi **500 karakter pertama** dari teks yang diekstrak.
+- `extracted_text` (teks lengkap) disimpan di database tetapi **tidak dikembalikan** di response untuk efisiensi.
