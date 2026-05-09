@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     CLOUDINARY_CLOUD_NAME: str
     CLOUDINARY_API_KEY: str
     CLOUDINARY_API_SECRET: str
+
+    # App environment
+    APP_ENV: str
     
     class Config:
         env_file = ".env"

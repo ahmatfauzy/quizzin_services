@@ -5,7 +5,11 @@ from config.settings import settings
 from routes import auth, document
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Quizzin API")
+app = FastAPI(
+    title="Quizzin API",
+    docs_url=None if settings.APP_ENV == "production" else "/docs",
+    redoc_url=None if settings.APP_ENV == "production" else "/redoc",
+)
 
 # Middleware Session dibutuhkan untuk authlib OAuth Web flow
 app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
