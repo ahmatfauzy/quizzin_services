@@ -1,4 +1,7 @@
+import os
 from pydantic_settings import BaseSettings
+
+APP_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Quizzin API"
@@ -30,10 +33,10 @@ class Settings(BaseSettings):
     CLOUDINARY_API_SECRET: str
 
     # App environment
-    APP_ENV: str
+    APP_ENV: str = "development"
     
     class Config:
-        env_file = ".env"
+        env_file = os.path.join(APP_ROOT, ".env")
         extra = "ignore"
 
 settings = Settings()
