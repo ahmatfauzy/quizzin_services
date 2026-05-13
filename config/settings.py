@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     CLOUDINARY_API_SECRET: str
 
     # App environment
-    APP_ENV: str = "development"
+    APP_ENV: str
     
     class Config:
         env_file = os.path.join(APP_ROOT, ".env")
