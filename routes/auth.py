@@ -38,7 +38,7 @@ def _build_user_dict(user: User) -> dict:
 def _build_token_response(user: User) -> TokenResponse:
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": str(user.id), "email": user.email},
+        data={"sub": str(user.id)},
         expires_delta=access_token_expires,
     )
     return TokenResponse(
