@@ -1,0 +1,1363 @@
+Semua pengerjaan yang sudah dilakukan tolong rekap di ./.agent/todos.md
+
+---
+
+PRD 'Quizzin'
+Target SDG: SDG 4 (Pendidikan Bermutu)
+
+Ini backend nanti dibuat rest api (dalam bentuk JSON), karena akan dipakai di frontend di mobile flutter.
+
+bikin projek agar modular, jadi pisah-pisah untuk setiap code. 
+haru clean code dan rapih. 
+
+tidak usah pakai redis!
+
+Authentication pake SMTP;
+Fokus Utama: Pengembangan platform edukasi cerdas (Smart-Tutor) berbasis ekstraksi dokumen digital (PDF/E-Book) dengan sistem evaluasi pemahaman (kuis) otomatis.
+
+---
+
+# Quizzin Backend — Vibe Coding Guide
+> FastAPI · PostgreSQL · Groq NLP · Cloudinary · SDG 4
+
+---
+
+## Project Overview
+
+Quizzin adalah platform edukasi cerdas (Smart-Tutor) berbasis AI yang memungkinkan siswa mengunggah dokumen PDF/e-book, lalu sistem secara otomatis mengekstrak konten per chapter, men-generate kuis, dan mengevaluasi pemahaman secara semantik. Backend ini adalah REST API dalam bentuk JSON, dikonsumsi oleh mobile Flutter.
+
+**Tech Stack:**
+- **Framework:** FastAPI (async)
+- **ORM:** SQLAlchemy + Alembic (migrations)
+- **Database:** PostgreSQL (`psycopg2-binary`)
+- **Auth:** JWT (`pyjwt`) + email verifikasi via Resend SMTP
+- **Email Token:** `itsdangerous` (URLSafeTimedSerializer)
+- **File Storage:** Cloudinary
+- **PDF Parsing:** PyMuPDF (`fitz`)
+- **NLP / AI:** Groq API (question generation & semantic scoring)
+- **Email:** Resend
+- **Validation:** Pydantic + `email-validator`
+- **Password Hashing:** `passlib[bcrypt]`
+
+---
+
+## Project Structure
+
+```
+quizzin_be/
+├── config/
+│   ├── __init__.py
+│   └── settings.py
+│
+├── database/
+│   ├── __init__.py
+│   └── database.py
+│
+├── migration/
+│   ├── versions/
+│   ├── env.py
+│   ├── README
+│   └── script.py.mako
+|
+├── models/
+│   ├── __init__.py
+│   ├── user.py
+│   ├── document.py
+│   ├── chapter.py
+│   ├── question.py
+│   ├── quiz_attempt.py
+│   ├── chapter_mastery.py
+│   └── notification.py
+│
+├── routes/
+│   ├── __init__.py
+│   ├── auth.py
+│   ├── profile.py
+│   ├── document.py
+│   ├── chapter.py
+│   ├── quiz.py
+│   ├── analytics.py
+│   └── dashboard.py
+│
+├── schemas/
+│   ├── __init__.py
+│   ├── auth.py
+│   ├── profile.py
+│   ├── document.py
+│   ├── chapter.py
+│   ├── quiz.py
+│   ├── analytics.py
+│   └── dashboard.py
+│
+├── utils/
+│   ├── __init__.py
+│   ├── dependencies.py       # get_current_user, get_db
+│   ├── email.py              # Resend integration
+│   ├── security.py           # JWT, password hashing, email token
+│   ├── cloudinary_service.py # upload PDF & avatar
+│   ├── pdf_service.py        # PyMuPDF extraction
+│   ├── nlp_service.py        # Groq: summarize, knowledge graph, questions
+│   ├── semantic.py           # Groq: essay scoring
+│   └── adaptive.py           # adaptive difficulty + XP logic
+│
+├── .env
+├── .env.example
+├── .gitignore
+├── alembic.ini
+├── main.py
+├── passenger_wsgi.py
+├── README.md
+└── requirement.txt
+```
+
+---
+
+## Environment Variables (`.env`)
+
+```env
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/quizzin_db
+
+# JWT
+SECRET_KEY=your-super-secret-key-here
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=1440
+
+# Email (Resend)
+RESEND_API_KEY=your-resend-api-key
+RESEND_SENDER_EMAIL=noreply@quizzin.app
+RESEND_SENDER_NAME=Quizzin
+
+# Cloudinary
+CLOUDINARY_CLOUD_NAME=your-cloud-name
+CLOUDINARY_API_KEY=your-api-key
+CLOUDINARY_API_SECRET=your-api-secret
+
+# Groq API
+GROQ_API_KEY=your-groq-api-key
+GROQ_MODEL=llama3-70b-8192
+
+# App
+URL_BASE=http://127.0.0.1:8000
+```
+
+---
+
+## Database Models
+
+### `users`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID PK | |
+| `full_name` | String | |
+| `email` | String UNIQUE | |
+| `hashed_password` | String | |
+| `avatar_url` | String | nullable, Cloudinary URL |
+| `academic_level` | String | nullable, e.g. "Graduate", "Undergraduate", "High School" |
+| `major` | String | nullable, e.g. "Computer Science & Cognitive Psychology" |
+| `xp_points` | Integer | default 0, knowledge points |
+| `streak_days` | Integer | default 0 |
+| `last_active_date` | Date | untuk hitung streak |
+| `subjects_mastered` | Integer | default 0, dihitung dari chapter mastery = 100% |
+| `is_verified` | Boolean | default false |
+| `is_active` | Boolean | default true |
+| `created_at` | Timestamp | |
+
+### `documents`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID PK | |
+| `user_id` | UUID FK → users | |
+| `title` | String | |
+| `original_filename` | String | |
+| `cloudinary_url` | String | |
+| `cloudinary_public_id` | String | untuk deletion |
+| `total_pages` | Integer | |
+| `status` | Enum | `processing` · `ready` · `failed` |
+| `created_at` | Timestamp | |
+
+### `chapters`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID PK | |
+| `document_id` | UUID FK → documents | |
+| `chapter_number` | Integer | urutan dalam dokumen |
+| `title` | String | extracted by NLP |
+| `raw_text` | Text | extracted by PyMuPDF |
+| `summary` | Text | generated by Groq |
+| `knowledge_graph` | JSONB | `{core_concept, modules: [{number, title, icon_type}], entities, relations}` |
+| `page_start` | Integer | |
+| `page_end` | Integer | |
+| `created_at` | Timestamp | |
+
+### `questions`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID PK | |
+| `chapter_id` | UUID FK → chapters | |
+| `subject_tag` | String | e.g. "Natural Language Processing" |
+| `question_text` | Text | kalimat pertanyaan utama |
+| `question_description` | Text | nullable, sub-text/konteks tambahan di bawah pertanyaan |
+| `hint` | Text | nullable, hint untuk MCQ |
+| `question_type` | Enum | `multiple_choice` · `essay` · `short_answer` |
+| `difficulty` | Enum | `easy` · `medium` · `hots` |
+| `options` | JSONB | `[{key, text}]` untuk MCQ, null untuk essay |
+| `correct_answer` | String | key jawaban benar, e.g. "B" |
+| `reference_facts` | JSONB | untuk semantic scoring |
+| `created_at` | Timestamp | |
+
+### `quiz_attempts`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID PK | |
+| `user_id` | UUID FK → users | |
+| `chapter_id` | UUID FK → chapters | |
+| `difficulty` | Enum | difficulty yang dipilih user |
+| `total_score` | Float | 0.0 – 100.0 |
+| `xp_gained` | Integer | XP didapat dari attempt ini |
+| `answers` | JSONB | `[{question_id, answer, score, is_correct, feedback, missing_concepts}]` |
+| `time_taken_seconds` | Integer | |
+| `completed_at` | Timestamp | |
+
+### `chapter_mastery`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID PK | |
+| `user_id` | UUID FK → users | |
+| `chapter_id` | UUID FK → chapters | |
+| `mastery_percentage` | Float | 0.0 – 100.0 |
+| `updated_at` | Timestamp | |
+
+### `notifications`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID PK | |
+| `user_id` | UUID FK → users | |
+| `title` | String | |
+| `body` | String | |
+| `is_read` | Boolean | default false |
+| `created_at` | Timestamp | |
+
+---
+
+## API Endpoints & Response Schemas
+
+---
+
+### Auth — `/auth`
+
+#### `POST /auth/register`
+*Sesuai UI — form: Full Name, Email, Password.*
+```json
+// Request
+{
+  "full_name": "Jane Doe",
+  "email": "jane@example.com",
+  "password": "secret123"
+}
+
+// Response 201
+{
+  "message": "Registration successful. Please check your email to verify your account.",
+  "user": {
+    "id": "uuid",
+    "full_name": "Jane Doe",
+    "email": "jane@example.com",
+    "is_verified": false
+  }
+}
+```
+
+#### `POST /auth/login`
+```json
+// Request
+{ "email": "student@example.com", "password": "secret123" }
+
+// Response 200
+{
+  "access_token": "eyJ...",
+  "token_type": "bearer",
+  "user": {
+    "id": "uuid",
+    "full_name": "Alex",
+    "email": "alex@example.com",
+    "avatar_url": "https://res.cloudinary.com/...",
+    "academic_level": "Graduate",
+    "major": "Computer Science",
+    "xp_points": 1250,
+    "streak_days": 5,
+    "is_verified": true
+  }
+}
+
+// Response 403
+{ "detail": "Email not verified. Please check your inbox.", "code": "EMAIL_NOT_VERIFIED" }
+```
+
+#### `POST /auth/verify-email`
+```json
+// Request
+{ "token": "signed-token-from-email" }
+
+// Response 200
+{
+  "message": "Email verified successfully.",
+  "access_token": "eyJ...",
+  "token_type": "bearer",
+  "user": {
+    "id": "uuid",
+    "full_name": "Jane Doe",
+    "email": "jane@example.com",
+    "avatar_url": null,
+    "is_verified": true
+  }
+}
+```
+
+#### `POST /auth/resend-verification`
+```json
+// Request
+{ "email": "jane@example.com" }
+
+// Response 200
+{ "message": "Verification email has been resent." }
+
+// Response 400
+{ "detail": "Email is already verified.", "code": "ALREADY_VERIFIED" }
+```
+
+#### `POST /auth/forgot-password`
+```json
+// Request
+{ "email": "jane@example.com" }
+
+// Response 200 (selalu 200 meski email tidak terdaftar)
+{ "message": "If that email exists, a password reset link has been sent." }
+```
+
+#### `POST /auth/reset-password`
+```json
+// Request
+{ "token": "signed-reset-token", "new_password": "newSecret123" }
+
+// Response 200
+{ "message": "Password has been reset successfully. Please log in." }
+
+// Response 400
+{ "detail": "Reset link has expired.", "code": "TOKEN_EXPIRED" }
+```
+
+#### `GET /auth/me`
+```json
+// Response 200
+{
+  "id": "uuid",
+  "full_name": "Alex",
+  "email": "alex@example.com",
+  "avatar_url": "https://res.cloudinary.com/...",
+  "academic_level": "Graduate",
+  "major": "Computer Science & Cognitive Psychology",
+  "xp_points": 1250,
+  "streak_days": 5,
+  "subjects_mastered": 12,
+  "is_verified": true,
+  "created_at": "2025-01-01T00:00:00Z"
+}
+```
+
+---
+
+### Profile — `/profile`
+
+#### `GET /profile`
+*Sesuai UI Image 1 — tampilkan semua info profil user.*
+```json
+// Response 200
+{
+  "id": "uuid",
+  "full_name": "Jane Doe",
+  "email": "jane.doe@university.edu",
+  "avatar_url": "https://res.cloudinary.com/...",
+  "academic_level": "Graduate",
+  "major": "Computer Science & Cognitive Psychology",
+  "xp_points": 1250,
+  "streak_days": 5,
+  "subjects_mastered": 12,
+  "created_at": "2025-01-01T00:00:00Z"
+}
+```
+
+#### `PUT /profile`
+*Sesuai UI Image 1 — "Save Changes": update full_name, academic_level, major.*
+```json
+// Request
+{
+  "full_name": "Jane Doe",
+  "academic_level": "Graduate",
+  "major": "Computer Science & Cognitive Psychology"
+}
+
+// Response 200
+{
+  "message": "Profile updated successfully.",
+  "user": {
+    "id": "uuid",
+    "full_name": "Jane Doe",
+    "email": "jane.doe@university.edu",
+    "avatar_url": "https://res.cloudinary.com/...",
+    "academic_level": "Graduate",
+    "major": "Computer Science & Cognitive Psychology"
+  }
+}
+```
+
+#### `PUT /profile/avatar`
+*Sesuai UI Image 1 — "TAP TO UPDATE PHOTO".*
+```json
+// Request: multipart/form-data
+// field: file (image)
+
+// Response 200
+{
+  "message": "Avatar updated successfully.",
+  "avatar_url": "https://res.cloudinary.com/quizzin/avatars/..."
+}
+```
+
+#### `PUT /profile/change-password`
+*Sesuai UI Image 1 — "Change Password" di Security & Preferences.*
+```json
+// Request
+{
+  "current_password": "oldSecret123",
+  "new_password": "newSecret456"
+}
+
+// Response 200
+{ "message": "Password changed successfully." }
+
+// Response 400
+{ "detail": "Current password is incorrect.", "code": "WRONG_PASSWORD" }
+```
+
+---
+
+### Dashboard — `/dashboard`
+
+#### `GET /dashboard`
+*Sesuai UI Image 7 — home screen: greeting, overall progress, weekly activity, recent documents, tutor suggestion.*
+```json
+// Response 200
+{
+  "greeting": {
+    "full_name": "Alex",
+    "message": "Ready to master your subjects today?"
+  },
+  "overall_progress": {
+    "percentage": 75,
+    "xp_points": 1250,
+    "subjects_mastered": 12
+  },
+  // weekly_activity: selalu 7 hari (Mon–Sun)
+  // activity_score = weighted score: quiz_count * avg_score hari itu (0–100)
+  // dipakai untuk tinggi bar chart di UI, bukan hanya quiz_count
+  "weekly_activity": [
+    { "day": "Mon", "quiz_count": 2, "activity_score": 45 },
+    { "day": "Tue", "quiz_count": 4, "activity_score": 60 },
+    { "day": "Wed", "quiz_count": 6, "activity_score": 90 },
+    { "day": "Thu", "quiz_count": 1, "activity_score": 20 },
+    { "day": "Fri", "quiz_count": 3, "activity_score": 55 },
+    { "day": "Sat", "quiz_count": 0, "activity_score": 0 },
+    { "day": "Sun", "quiz_count": 0, "activity_score": 0 }
+  ],
+  "recent_documents": [
+    {
+      "id": "uuid",
+      "title": "Advanced Calculus",
+      "original_filename": "Advanced Calculus.pdf",
+      "total_pages": 14,
+      "status": "ready",
+      "has_chapters": true,
+      "uploaded_at": "2025-01-01T00:00:00Z",
+      "uploaded_label": "2 days ago"
+    },
+    {
+      "id": "uuid-2",
+      "title": "History of Rome",
+      "original_filename": "History of Rome.pdf",
+      "total_pages": 32,
+      "status": "ready",
+      "has_chapters": true,
+      "uploaded_at": "2024-12-28T00:00:00Z",
+      "uploaded_label": "5 days ago"
+    }
+  ],
+  "tutor_suggestion": {
+    "message": "You've mastered Calculus chapters 1-3. Ready to try a mixed review quiz to reinforce your memory?"
+  }
+}
+```
+
+> `uploaded_label` dihitung di backend (e.g. "2 days ago") sehingga mobile tidak perlu formatting logic.
+> `weekly_activity` selalu 7 hari (Mon–Sun), hari tanpa activity = 0.
+
+---
+
+### Documents — `/documents`
+
+#### `POST /documents/upload`
+```json
+// Request: multipart/form-data
+// fields: file (PDF), title (string)
+
+// Response 202
+{
+  "id": "uuid",
+  "title": "Advanced Calculus",
+  "original_filename": "advanced_calculus.pdf",
+  "status": "processing",
+  "created_at": "2025-01-01T00:00:00Z"
+}
+```
+
+#### `GET /documents/{id}/status`
+*Di-poll mobile sampai status `ready`.*
+```json
+// Response 200
+{
+  "id": "uuid",
+  "status": "ready",
+  "total_chapters": 5,
+  "total_pages": 120
+}
+```
+
+#### `GET /documents/`
+```json
+// Response 200
+{
+  "documents": [
+    {
+      "id": "uuid",
+      "title": "Advanced Calculus",
+      "original_filename": "advanced_calculus.pdf",
+      "total_pages": 120,
+      "total_chapters": 5,
+      "status": "ready",
+      "created_at": "2025-01-01T00:00:00Z",
+      "uploaded_label": "2 days ago"
+    }
+  ]
+}
+```
+
+#### `GET /documents/{id}`
+*Sesuai UI Image 6 — "Extracted Chapters" screen. Tiap chapter milik dokumen ini.*
+```json
+// Response 200
+{
+  "id": "uuid",
+  "title": "Advanced Calculus",
+  "original_filename": "advanced_calculus.pdf",
+  "total_pages": 120,
+  "total_chapters": 5,
+  "status": "ready",
+  "created_at": "2025-01-01T00:00:00Z",
+  // status_icon logic:
+  // "completed"   → mastery = 100%  → icon centang hijau
+  // "in_progress" → mastery > 0%    → icon trending up
+  // "not_started" → mastery = 0%, is_locked = false → icon default
+  // "locked"      → is_locked = true → icon gembok
+  "chapters": [
+    {
+      "id": "uuid-ch1",
+      "chapter_number": 1,
+      "title": "Limits and Continuity",
+      "mastery_percentage": 100,
+      "is_completed": true,
+      "is_locked": false,
+      "status_icon": "completed",
+      "action_label": "Review Concepts",
+      "page_start": 1,
+      "page_end": 22
+    },
+    {
+      "id": "uuid-ch2",
+      "chapter_number": 2,
+      "title": "Derivatives and Rates of Change",
+      "mastery_percentage": 65,
+      "is_completed": false,
+      "is_locked": false,
+      "status_icon": "in_progress",
+      "action_label": "Continue Exploring",
+      "page_start": 23,
+      "page_end": 45
+    },
+    {
+      "id": "uuid-ch3",
+      "chapter_number": 3,
+      "title": "Applications of Differentiation",
+      "mastery_percentage": 0,
+      "is_completed": false,
+      "is_locked": false,
+      "status_icon": "not_started",
+      "action_label": "Explore Concepts",
+      "page_start": 46,
+      "page_end": 67
+    },
+    {
+      "id": "uuid-ch4",
+      "chapter_number": 4,
+      "title": "Integrals and Fundamental Theorem",
+      "mastery_percentage": 0,
+      "is_completed": false,
+      "is_locked": true,
+      "status_icon": "locked",
+      "action_label": "Explore Concepts",
+      "page_start": 68,
+      "page_end": 90
+    }
+  ]
+}
+```
+
+ > **Logic `action_label`, `status_icon` & `is_locked` di backend:**
+> ```python
+> LOCK_THRESHOLD = 60  # prev chapter mastery >= 60% untuk unlock next
+>
+> def resolve_action_label(mastery: float) -> str:
+>     if mastery >= 100: return "Review Concepts"
+>     if mastery > 0:    return "Continue Exploring"
+>     return "Explore Concepts"
+>
+> def resolve_status_icon(mastery: float, is_locked: bool) -> str:
+>     if is_locked:        return "locked"
+>     if mastery >= 100:   return "completed"
+>     if mastery > 0:      return "in_progress"
+>     return "not_started"
+>
+> def resolve_is_locked(chapter_number: int, mastery_map: dict) -> bool:
+>     if chapter_number == 1: return False
+>     return mastery_map.get(chapter_number - 1, 0) < LOCK_THRESHOLD
+>
+> # activity_score untuk bar chart (0–100)
+> def calc_activity_score(quiz_count: int, avg_score: float) -> int:
+>     if quiz_count == 0: return 0
+>     return min(round((quiz_count / 5) * 50 + avg_score * 0.5), 100)
+> ```
+
+#### `DELETE /documents/{id}`
+```json
+// Response 200
+{ "message": "Document deleted successfully." }
+```
+
+---
+
+### Chapters — `/chapters`
+
+#### `GET /chapters/{id}`
+*Sesuai UI Image 4 & 6 — detail chapter dengan knowledge graph untuk mind-map.*
+```json
+// Response 200
+{
+  "id": "uuid-ch4",
+  "chapter_number": 4,
+  "title": "Derivatives Base",
+  "document_id": "uuid-doc",
+  "document_title": "Advanced Calculus",
+  "summary": "Chapter ini membahas konsep dasar turunan, termasuk rates of change, slopes, dan aplikasinya.",
+  "mastery_percentage": 65,
+  "page_start": 46,
+  "page_end": 67,
+  "knowledge_graph": {
+    "core_concept": {
+      "title": "Derivatives",
+      "label": "Core Concept"
+    },
+    "modules": [
+      // icon_type enum (sesuai icon Flutter yang umum):
+      // "trending_up"  → grafik naik (rates, slopes, growth)
+      // "cycle"        → rotasi/siklus (applications, processes)
+      // "atom"         → sains/fisika
+      // "function"     → matematika/formula
+      // "book"         → teori/konsep dasar
+      // "diagram"      → struktur/relasi
+      {
+        "module_number": "4.1",
+        "title": "Rates of Change",
+        "icon_type": "trending_up"
+      },
+      {
+        "module_number": "4.2",
+        "title": "Slopes",
+        "icon_type": "trending_up"
+      },
+      {
+        "module_number": "4.3",
+        "title": "Applications",
+        "icon_type": "cycle"
+      }
+    ],
+    "entities": ["Derivative", "Rate of Change", "Chain Rule", "Product Rule", "Slope"],
+    "relations": [
+      { "from": "Derivatives", "to": "Rates of Change", "label": "measures" },
+      { "from": "Derivatives", "to": "Slopes", "label": "defines" },
+      { "from": "Derivatives", "to": "Applications", "label": "used in" }
+    ]
+  }
+}
+```
+
+---
+
+### Quizzes — `/quizzes`
+
+#### `POST /quizzes/generate`
+*Sesuai UI Image 5 — generate soal per chapter per difficulty.*
+```json
+// Request
+{
+  "chapter_id": "uuid-ch2",
+  "difficulty": "medium"
+}
+
+// Response 201
+{
+  "attempt_id": "uuid-attempt",
+  "chapter_id": "uuid-ch2",
+  "chapter_title": "Derivatives and Rates of Change",
+  "difficulty": "medium",
+  "total_questions": 10,
+  "estimated_time_seconds": 600,
+  "questions": [
+    {
+      "id": "uuid-q1",
+      "order": 1,
+      "subject_tag": "Derivatives",
+      "question_text": "Which of the following is a key property of a derivative?",
+      "question_description": null,
+      "question_type": "multiple_choice",
+      "hint": "Think about what happens as the interval between two points on a curve approaches zero.",
+      "options": [
+        { "key": "A", "text": "It represents the area under a curve." },
+        { "key": "B", "text": "It measures the instantaneous rate of change." },
+        { "key": "C", "text": "It is only applicable to linear functions." },
+        { "key": "D", "text": "It defines the total sum of a sequence." }
+      ]
+    },
+    {
+      "id": "uuid-q2",
+      "order": 2,
+      "subject_tag": "Natural Language Processing",
+      "question_text": "Explain the concept of Semantic Similarity in your own words.",
+      "question_description": "Provide an example of how it might be used in a real-world application, such as a search engine or a recommendation system.",
+      "question_type": "essay",
+      "hint": null,
+      "options": null
+    }
+  ]
+}
+```
+
+> `estimated_time_seconds` sesuai UI:
+> - `easy` → 300s (EST. 5 MINS)
+> - `medium` → 600s (EST. 10 MINS)
+> - `hots` → 1200s (EST. 20+ MINS)
+
+#### `POST /quizzes/{attempt_id}/submit`
+*Sesuai UI Image 3 & 5 — submit seluruh jawaban, AI evaluasi, return hasil lengkap.*
+```json
+// Request
+{
+  "answers": [
+    { "question_id": "uuid-q1", "answer": "B" },
+    { "question_id": "uuid-q2", "answer": "Semantic similarity measures how close two pieces of text are in meaning..." }
+  ],
+  "time_taken_seconds": 480
+}
+
+// Response 200
+{
+  "attempt_id": "uuid-attempt",
+  "chapter_title": "Derivatives and Rates of Change",
+  "difficulty": "medium",
+  "total_score": 85.0,
+  "xp_gained": 12,
+  "mastery_updated": 72.5,
+  "time_taken_seconds": 480,
+  "next_difficulty_suggestion": "hots",
+  "results": [
+    {
+      "question_id": "uuid-q1",
+      "order": 1,
+      "subject_tag": "Derivatives",
+      "question_text": "Which of the following is a key property of a derivative?",
+      "question_type": "multiple_choice",
+      "user_answer": "B",
+      "correct_answer": "B",
+      "score": 100.0,
+      "is_correct": true,
+      "feedback": "Correct! A derivative measures the instantaneous rate of change.",
+      "missing_concepts": []
+    },
+    {
+      "question_id": "uuid-q2",
+      "order": 2,
+      "subject_tag": "Natural Language Processing",
+      "question_text": "Explain the concept of Semantic Similarity...",
+      "question_type": "essay",
+      "user_answer": "Semantic similarity measures how close...",
+      "correct_answer": null,
+      "score": 70.0,
+      "is_correct": null,
+      "feedback": "Good start! Consider also mentioning cosine similarity as a common measurement technique.",
+      "missing_concepts": ["cosine similarity", "vector space model"]
+    }
+  ]
+}
+```
+
+> **XP Calculation (`utils/adaptive.py`):**
+> ```python
+> def calculate_xp(score: float, difficulty: str) -> int:
+>     base = {"easy": 5, "medium": 10, "hots": 20}
+>     multiplier = score / 100
+>     return round(base[difficulty] * multiplier)
+> ```
+
+#### `GET /quizzes/history`
+```json
+// Response 200
+{
+  "attempts": [
+    {
+      "attempt_id": "uuid-attempt",
+      "chapter_title": "Derivatives and Rates of Change",
+      "document_title": "Advanced Calculus",
+      "difficulty": "medium",
+      "total_score": 85.0,
+      "xp_gained": 12,
+      "time_taken_seconds": 480,
+      "completed_at": "2025-01-01T10:00:00Z"
+    }
+  ]
+}
+```
+
+#### `GET /quizzes/attempt/{id}`
+```json
+// Response 200
+{
+  "attempt_id": "uuid-attempt",
+  "chapter_id": "uuid-ch2",
+  "chapter_title": "Derivatives and Rates of Change",
+  "document_title": "Advanced Calculus",
+  "difficulty": "medium",
+  "total_score": 85.0,
+  "xp_gained": 12,
+  "time_taken_seconds": 480,
+  "completed_at": "2025-01-01T10:00:00Z",
+  "results": [ /* sama dengan submit response */ ]
+}
+```
+
+---
+
+### Analytics — `/analytics`
+
+#### `GET /analytics/learning?document_id={id}`
+*Sesuai UI Image 2 — "Learning Analytics" screen lengkap.*
+```json
+// Response 200
+{
+  "summary": {
+    "total_score": 85,
+    "max_score": 100,
+    "greeting": "Great Job, Alex!",
+    "message": "You've mastered 3 new concepts today. Keep up the momentum in Quantum Physics to hit your goal.",
+    "xp_gained_today": 12,
+    "streak_days": 5
+  },
+  "ai_readiness": {
+    "status": "ready_to_advance",
+    "status_label": "Ready to Advance",
+    "recommended_action": "Advance to Next Level",
+    "note": "While you are ready to move forward, reviewing the Recommended Focus areas below will ensure a significantly stronger foundation for more advanced topics.",
+    "readiness_percentage": 85,
+    "threshold_percentage": 80
+  },
+  // status possible values:
+  // "ready_to_advance"  → readiness >= threshold  → label hijau "Ready to Advance"
+  // "on_track"          → readiness >= 60          → label kuning "On Track"
+  // "needs_improvement" → readiness < 60           → label merah "Needs Improvement"
+  // severity → warna left border card di UI:
+  // "high"   → merah   (penurunan score signifikan)
+  // "medium" → oranye  (struggling, perlu perhatian)
+  // "low"    → biru    (perlu review ringan)
+  "recommended_focus": [
+    {
+      "topic": "Quantum Physics",
+      "reason": "Scores dropped 15% in recent quizzes.",
+      "reference_book": "Advanced Quantum Mechanics",
+      "reference_chapter": "Chapter 3: Wave Mechanics",
+      "reference_pages": "pp. 45-62",
+      "action": "start_review",
+      "action_label": "Start Review",
+      "action_style": "primary",
+      "severity": "low"
+    },
+    {
+      "topic": "Organic Chemistry",
+      "reason": "Struggling with Reaction Mechanisms.",
+      "reference_book": "Organic Principles",
+      "reference_chapter": "Chapter 4: Reaction Pathways",
+      "reference_pages": "pp. 88-102",
+      "action": "view_materials",
+      "action_label": "View Materials",
+      "action_style": "secondary",
+      "severity": "medium"
+    },
+    {
+      "topic": "Statistics",
+      "reason": "Consistently missing Probability distributions.",
+      "reference_book": "Statistical Analysis",
+      "reference_chapter": "Chapter 2: Discrete Distributions",
+      "reference_pages": "pp. 24-35",
+      "action": "view_materials",
+      "action_label": "View Materials",
+      "action_style": "secondary",
+      "severity": "high"
+    }
+  ],
+  "incorrect_answers": [
+    {
+      "question_id": "uuid-q7",
+      "question_text": "Calculate the probability of independent events A and B.",
+      "review_chapter": "Chapter 4: Probability Distributions",
+      "action_label": "Review Concept"
+    },
+    {
+      "question_id": "uuid-q14",
+      "question_text": "Explain the wave-particle duality of light in the double-slit experiment.",
+      "review_chapter": "Chapter 6: Wave Mechanics",
+      "action_label": "Review Concept"
+    },
+    {
+      "question_id": "uuid-q22",
+      "question_text": "Identify the functional group in the provided organic molecule.",
+      "review_chapter": "Chapter 2: Functional Groups",
+      "action_label": "Review Concept"
+    }
+  ]
+}
+```
+
+#### `GET /analytics/knowledge-gap?document_id={id}`
+```json
+// Response 200
+{
+  "document_id": "uuid",
+  "document_title": "Advanced Calculus",
+  "chapters": [
+    {
+      "chapter_id": "uuid-ch1",
+      "chapter_title": "Limits and Continuity",
+      "mastery_percentage": 100,
+      "weak_topics": []
+    },
+    {
+      "chapter_id": "uuid-ch2",
+      "chapter_title": "Derivatives and Rates of Change",
+      "mastery_percentage": 65,
+      "weak_topics": ["Chain Rule", "Implicit Differentiation"]
+    },
+    {
+      "chapter_id": "uuid-ch3",
+      "chapter_title": "Applications of Differentiation",
+      "mastery_percentage": 0,
+      "weak_topics": []
+    }
+  ]
+}
+```
+
+#### `GET /analytics/performance?document_id={id}`
+```json
+// Response 200
+{
+  "overall_mastery": 72.5,
+  "total_attempts": 8,
+  "xp_points": 1250,
+  "subjects_mastered": 12,
+  "trend": [
+    { "date": "2025-01-01", "avg_score": 60.0 },
+    { "date": "2025-01-05", "avg_score": 72.5 },
+    { "date": "2025-01-10", "avg_score": 85.0 }
+  ]
+}
+```
+
+---
+
+### Notifications — `/notifications`
+
+#### `GET /notifications`
+*Bell icon di UI Image 7.*
+```json
+// Response 200
+{
+  "unread_count": 2,
+  "notifications": [
+    {
+      "id": "uuid-n1",
+      "title": "Quiz Completed!",
+      "body": "You scored 85/100 on Derivatives and Rates of Change.",
+      "is_read": false,
+      "created_at": "2025-01-01T10:00:00Z"
+    },
+    {
+      "id": "uuid-n2",
+      "title": "New Streak!",
+      "body": "You're on a 5-day learning streak. Keep it up!",
+      "is_read": false,
+      "created_at": "2025-01-01T08:00:00Z"
+    }
+  ]
+}
+```
+
+#### `PUT /notifications/{id}/read`
+```json
+// Response 200
+{ "message": "Notification marked as read." }
+```
+
+#### `PUT /notifications/read-all`
+```json
+// Response 200
+{ "message": "All notifications marked as read." }
+```
+
+---
+
+## Email Verification Flow
+
+```
+POST /auth/register
+    │
+    ├─ Hash password, simpan user (is_verified=false)
+    ├─ Generate signed token (itsdangerous, salt="email-verification")
+    ├─ Kirim email via Resend:
+    │     Subject : "Verifikasi Akun Quizzin Kamu"
+    │     Link    : quizzin://verify-email?token=xxx  ← Flutter deep link
+    └─ Return 201
+
+POST /auth/verify-email { token }
+    │
+    ├─ Decode & validasi token (max age: 24 jam)
+    ├─ Set user.is_verified = true
+    └─ Return access_token (auto-login)
+```
+
+### Token Signing (`utils/security.py`)
+```python
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
+
+serializer = URLSafeTimedSerializer(settings.SECRET_KEY)
+
+SALT_VERIFY = "email-verification"
+SALT_RESET  = "password-reset"
+
+def generate_email_token(email: str, salt: str) -> str:
+    return serializer.dumps(email, salt=salt)
+
+def verify_email_token(token: str, salt: str, max_age: int = 86400) -> str:
+    try:
+        return serializer.loads(token, salt=salt, max_age=max_age)
+    except SignatureExpired:
+        raise HTTPException(status_code=400, detail="Link has expired.", headers={"X-Error-Code": "TOKEN_EXPIRED"})
+    except BadSignature:
+        raise HTTPException(status_code=400, detail="Invalid token.", headers={"X-Error-Code": "TOKEN_INVALID"})
+```
+
+---
+
+## Core Service Logic
+
+### 1. PDF Processing Flow (`utils/pdf_service.py`)
+```
+POST /documents/upload
+    │
+    ├─ Upload PDF ke Cloudinary (resource_type="raw")
+    ├─ Simpan document record (status="processing")
+    ├─ Return 202 langsung
+    └─ Background task: process_pdf(document_id, db)
+           │
+           ├─ Download PDF dari Cloudinary URL
+           ├─ PyMuPDF: extract text + detect page ranges
+           ├─ Groq: deteksi batas chapter & judul
+           ├─ Groq: generate summary per chapter
+           ├─ Groq: extract knowledge_graph
+           │         → core_concept, modules, entities, relations
+           ├─ Simpan semua chapters ke DB
+           └─ Set document.status = "ready"
+```
+
+### 2. Question Generation (`utils/nlp_service.py`)
+```python
+system_prompt = """
+You are an expert educator. Given chapter text and difficulty level, generate quiz questions.
+Output strict JSON only, no markdown:
+{
+  "questions": [
+    {
+      "subject_tag": "...",
+      "question_text": "main question sentence",
+      "question_description": "optional sub-text or context shown below the question, null if not needed",
+      "question_type": "multiple_choice|essay|short_answer",
+      "hint": "optional hint shown below MCQ options, null for essay",
+      "options": [
+        {"key": "A", "text": "..."},
+        {"key": "B", "text": "..."},
+        {"key": "C", "text": "..."},
+        {"key": "D", "text": "..."}
+      ],
+      "correct_answer": "B",
+      "reference_facts": ["key fact 1", "key fact 2"]
+    }
+  ]
+}
+For essay/short_answer: options = null, correct_answer = null.
+"""
+```
+
+### 3. Semantic Scoring (`utils/semantic.py`)
+```python
+system_prompt = """
+You are a strict but fair academic evaluator.
+Compare the student's answer against the reference facts.
+Output strict JSON only:
+{
+  "score": 0.85,
+  "missing_concepts": ["concept A", "concept B"],
+  "feedback": "Constructive feedback in the same language as the student answer."
+}
+Score: 0.0 = completely wrong, 1.0 = perfect.
+"""
+```
+
+### 4. Adaptive Difficulty & XP (`utils/adaptive.py`)
+```python
+from statistics import mean
+
+def suggest_next_difficulty(recent_attempts: list) -> str:
+    if not recent_attempts: return "easy"
+    avg = mean([a.total_score for a in recent_attempts[-3:]])
+    if avg >= 80: return "hots"
+    if avg >= 60: return "medium"
+    return "easy"
+
+def calculate_xp(score: float, difficulty: str) -> int:
+    base = {"easy": 5, "medium": 10, "hots": 20}
+    return round(base[difficulty] * (score / 100))
+
+def update_streak(user) -> int:
+    from datetime import date
+    today = date.today()
+    if user.last_active_date == today: return user.streak_days
+    if user.last_active_date == today - timedelta(days=1):
+        return user.streak_days + 1
+    return 1  # reset streak
+```
+
+### 5. Tutor Suggestion (`routes/dashboard.py`)
+```python
+# Generate tutor suggestion berdasarkan mastery user
+# Groq prompt: berikan satu kalimat saran belajar berdasarkan chapter yang sudah dikuasai
+# Contoh output: "You've mastered Calculus chapters 1-3. Ready to try a mixed review quiz?"
+```
+
+---
+
+## Authentication & JWT
+
+```python
+# utils/security.py
+ACCESS_TOKEN_EXPIRE = settings.ACCESS_TOKEN_EXPIRE_MINUTES  # 1440 menit
+
+def create_access_token(data: dict) -> str:
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE)
+    return jwt.encode({**data, "exp": expire}, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+def decode_access_token(token: str) -> dict:
+    try:
+        return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired.", headers={"X-Error-Code": "TOKEN_EXPIRED"})
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token.", headers={"X-Error-Code": "TOKEN_INVALID"})
+```
+
+---
+
+## File Upload — Cloudinary
+
+```python
+# PDF
+cloudinary.uploader.upload(
+    file,
+    resource_type="raw",
+    folder="quizzin/documents",
+    public_id=f"doc_{user_id}_{uuid4()}",
+)
+
+# Avatar
+cloudinary.uploader.upload(
+    file,
+    resource_type="image",
+    folder="quizzin/avatars",
+    transformation=[{"width": 256, "height": 256, "crop": "fill"}],
+)
+```
+
+---
+
+## Background Tasks Pattern
+
+```python
+@router.post("/documents/upload", status_code=202)
+async def upload_document(
+    file: UploadFile,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # 1. Upload ke Cloudinary
+    # 2. Simpan document record (status="processing")
+    # 3. Return 202 langsung
+    background_tasks.add_task(process_pdf, document.id, db)
+    return {"status": "processing", "document_id": document.id}
+```
+
+---
+
+## Error Handling Convention
+
+```python
+raise HTTPException(
+    status_code=404,
+    detail="Document not found.",
+    headers={"X-Error-Code": "DOCUMENT_NOT_FOUND"}
+)
+```
+
+Standard error response:
+```json
+{ "detail": "Human-readable error message." }
+```
+
+Common error codes: `EMAIL_NOT_VERIFIED` · `TOKEN_EXPIRED` · `TOKEN_INVALID` · `ALREADY_VERIFIED` · `WRONG_PASSWORD` · `DOCUMENT_NOT_FOUND` · `CHAPTER_LOCKED` · `PROCESSING_FAILED`
+
+---
+
+## Alembic — Migration Commands
+
+```bash
+alembic revision --autogenerate -m "description"
+alembic upgrade head
+alembic downgrade -1
+```
+
+---
+
+## Groq API — Quick Reference
+
+```python
+from groq import Groq
+import json
+
+client = Groq(api_key=settings.GROQ_API_KEY)
+
+response = client.chat.completions.create(
+    model=settings.GROQ_MODEL,
+    messages=[
+        {"role": "system", "content": system_prompt},
+        {"role": "user",   "content": chapter_text},
+    ],
+    response_format={"type": "json_object"},
+    temperature=0.3,   # quiz & scoring: deterministik
+    max_tokens=2048,
+)
+
+result = json.loads(response.choices[0].message.content)
+```
+> `temperature=0.7` untuk summary, knowledge graph, tutor suggestion.
+
+---
+
+## Development Checklist
+
+### Phase 1 — Foundation ✅
+- [x] FastAPI project setup
+- [x] Auth: register & login (JWT)
+- [x] Cloudinary uploader setup
+
+### Phase 2 — Auth Complete
+- [ ] Email verification (Resend + itsdangerous)
+- [ ] Resend verification endpoint
+- [ ] Forgot & reset password
+- [ ] `GET /auth/me`
+
+### Phase 3 — Profile & Dashboard
+- [ ] `GET /profile` & `PUT /profile`
+- [ ] `PUT /profile/avatar`
+- [ ] `PUT /profile/change-password`
+- [ ] `GET /dashboard` (progress, weekly activity, recent docs, tutor suggestion)
+- [ ] Notifications CRUD
+
+### Phase 4 — Document & NLP
+- [ ] Alembic: semua tabel (chapters, questions, quiz_attempts, chapter_mastery, notifications)
+- [ ] PDF upload (`resource_type="raw"`)
+- [ ] Background task: PyMuPDF + Groq chapter extraction
+- [ ] Groq: summary per chapter
+- [ ] Groq: knowledge graph (core_concept + modules + relations)
+- [ ] `GET /documents/{id}/status` polling
+
+### Phase 5 — Quiz Engine
+- [ ] Groq: question generation per difficulty (dengan hint untuk MCQ)
+- [ ] Submit + MCQ scoring
+- [ ] Groq: semantic scoring essay/short_answer
+- [ ] XP & streak update setelah attempt
+- [ ] Mastery update + lock/unlock logic
+- [ ] Adaptive difficulty suggestion
+
+### Phase 6 — Analytics & Polish
+- [ ] `GET /analytics/learning` (full dashboard analytics)
+- [ ] `GET /analytics/knowledge-gap`
+- [ ] `GET /analytics/performance`
+- [ ] Rate limiting + input sanitization
+- [ ] Unit tests (pytest)
+
+---
+
+## Key Dependencies Reference
+
+| Package | Digunakan untuk |
+|---|---|
+| `fastapi[standard]` | Core framework + Uvicorn |
+| `sqlalchemy` | ORM |
+| `alembic` | DB migrations |
+| `pydantic-settings` | Load `.env` ke Settings class |
+| `pyjwt` | JWT encode/decode |
+| `passlib[bcrypt]` | Password hashing |
+| `itsdangerous` | Email token signing (verify & reset password) |
+| `cloudinary` | File storage — PDF (raw) & avatar (image) |
+| `pymupdf` | PDF text extraction (`import fitz`) |
+| `python-multipart` | File upload handling di FastAPI |
+| `resend` | Transactional email |
+| `email-validator` | Validasi format email di Pydantic |
+| `psycopg2-binary` | PostgreSQL driver |
+| `httpx` | Async HTTP client |
+| `requests` | Sync HTTP client |
+| `a2wsgi` | WSGI adapter untuk `passenger_wsgi.py` |

@@ -14,11 +14,6 @@ class Settings(BaseSettings):
     ALGORITHM: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int
     
-    # Google OAuth
-    GOOGLE_CLIENT_ID: str
-    GOOGLE_CLIENT_SECRET: str
-    GOOGLE_MOBILE_CLIENT_ID: str
-    
     # Local/App
     URL_BASE: str
     
@@ -33,7 +28,11 @@ class Settings(BaseSettings):
     CLOUDINARY_API_SECRET: str
 
     # App environment
-    APP_ENV: str
+    APP_ENV: str = "development"
+
+    # Groq NLP
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama3-70b-8192"
     
     class Config:
         env_file = os.path.join(APP_ROOT, ".env")

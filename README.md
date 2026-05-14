@@ -10,10 +10,10 @@ source .venv/bin/activate
 
 Windows: 
 ```bash
-py -3 -m venv .venv
+python -m venv .venv
 .venv\Scripts\activate
 ```
-
+ 
 2. Install dependencies
 
 ```bash
@@ -29,7 +29,7 @@ cp .env.example .env
 4. Jalankan server
 
 ```bash
-fastapi dev main.py
+fastapi dev
 ```
 
 Server akan berjalan di `http://127.0.0.1:8000`

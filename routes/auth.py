@@ -1,166 +1,103 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from datetime import timedelta
-import httpx
-from pydantic import BaseModel
+from datetime import timedelta, date
 
 from database.database import get_db
 from models.user import User
-from schemas.auth import GoogleToken, TokenResponse, RegisterRequest, LoginRequest, ResendVerificationRequest
+from schemas.auth import (
+    TokenResponse, RegisterRequest, LoginRequest, VerifyEmailRequest,
+    ResendVerificationRequest, ForgotPasswordRequest, ResetPasswordRequest,
+)
 from schemas.user import UserResponse
 from utils.security import (
-    verify_google_token, create_access_token, get_password_hash, 
-    verify_password, create_verification_token, verify_email_token
+    create_access_token, get_password_hash, verify_password,
+    generate_email_token, verify_email_token, SALT_VERIFY, SALT_RESET,
 )
+from utils.dependencies import get_current_user
 from config.settings import settings
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-class GoogleWebToken(BaseModel):
-    token: str | None = None
-    code: str | None = None
 
-def handle_user_login(db: Session, email: str, full_name: str, picture: str, is_verified: bool = True):
-    user = db.query(User).filter(User.email == email).first()
-    if not user:
-        user = User(
-            email=email,
-            full_name=full_name,
-            picture=picture,
-            is_verified=is_verified
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    elif not user.is_verified and is_verified:
-        user.is_verified = True
-        db.commit()
-        db.refresh(user)
-    
+def _build_user_dict(user: User) -> dict:
+    return {
+        "id": user.id,
+        "full_name": user.full_name,
+        "email": user.email,
+        "avatar_url": user.avatar_url,
+        "academic_level": user.academic_level,
+        "major": user.major,
+        "xp_points": user.xp_points or 0,
+        "streak_days": user.streak_days or 0,
+        "subjects_mastered": user.subjects_mastered or 0,
+        "is_verified": user.is_verified,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+    }
+
+
+def _build_token_response(user: User) -> TokenResponse:
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": str(user.id), "email": user.email}, expires_delta=access_token_expires
+        data={"sub": str(user.id), "email": user.email},
+        expires_delta=access_token_expires,
     )
-    
-    user_data = UserResponse.model_validate(user).model_dump()
-    user_data["created_at"] = user_data["created_at"].isoformat() if user_data["created_at"] else None
-    if user_data["updated_at"]:
-        user_data["updated_at"] = user_data["updated_at"].isoformat()
-
     return TokenResponse(
         access_token=access_token,
         token_type="bearer",
-        user=user_data
+        user=_build_user_dict(user),
     )
 
-# --- GOOGLE OAUTH ---
 
-@router.post("/google/mobile", response_model=TokenResponse)
-def google_auth_mobile(payload: GoogleToken, db: Session = Depends(get_db)):
-    idinfo = verify_google_token(payload.token)
-    if not idinfo:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google token")
-    
-    email = idinfo.get("email")
-    if not email:
-        raise HTTPException(status_code=400, detail="Email not provided in Google token")
-
-    return handle_user_login(db, email, idinfo.get("name"), idinfo.get("picture"), is_verified=True)
-
-@router.post("/google/web", response_model=TokenResponse)
-async def google_auth_web(payload: GoogleWebToken, db: Session = Depends(get_db)):
-    if not payload.token and not payload.code:
-        raise HTTPException(status_code=400, detail="Please provide either 'token' or 'code'")
-
-    idinfo = None
-    if payload.token:
-        idinfo = verify_google_token(payload.token)
-    elif payload.code:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://oauth2.googleapis.com/token",
-                data={
-                    "code": payload.code,
-                    "client_id": settings.GOOGLE_CLIENT_ID,
-                    "client_secret": settings.GOOGLE_CLIENT_SECRET,
-                    "redirect_uri": "postmessage",
-                    "grant_type": "authorization_code"
-                }
-            )
-            data = response.json()
-            if "id_token" not in data:
-                raise HTTPException(status_code=400, detail=f"Failed to exchange code: {data.get('error_description', 'Unknown error')}")
-            idinfo = verify_google_token(data["id_token"])
-
-    if not idinfo:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google token or code")
-    
-    email = idinfo.get("email")
-    if not email:
-        raise HTTPException(status_code=400, detail="Email not provided in Google credential")
-
-    return handle_user_login(db, email, idinfo.get("name"), idinfo.get("picture"), is_verified=True)
-
-
-# --- CREDENTIALS AUTH ---
-
-@router.post("/register")
+@router.post("/register", status_code=201)
 def register(payload: RegisterRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == payload.email).first()
-    if user:
+    if db.query(User).filter(User.email == payload.email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
-        
-    hashed_password = get_password_hash(payload.password)
-    
+
     new_user = User(
         email=payload.email,
         full_name=payload.full_name,
-        hashed_password=hashed_password,
-        is_verified=False
+        hashed_password=get_password_hash(payload.password),
+        is_verified=False,
     )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    
-    # Generate verification token
-    verification_token = create_verification_token(new_user.email)
-    
-    # Kirim email verifikasi ke user
+
+    token = generate_email_token(new_user.email, SALT_VERIFY)
     from utils.email import send_verification_email
-    send_verification_email(new_user.email, verification_token)
-    
+    send_verification_email(new_user.email, token)
+
     return {
-        "message": "User registered successfully. Please verify your email."
+        "message": "Registration successful. Please check your email to verify your account.",
+        "user": {"id": new_user.id, "full_name": new_user.full_name, "email": new_user.email, "is_verified": False},
     }
+
 
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
-    
     if not user or not user.hashed_password:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
-        
+        raise HTTPException(status_code=401, detail="Invalid email or password")
     if not verify_password(payload.password, user.hashed_password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
-        
+        raise HTTPException(status_code=401, detail="Invalid email or password")
     if not user.is_verified:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Please verify your email first")
-        
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": str(user.id), "email": user.email}, expires_delta=access_token_expires
-    )
-    
-    user_data = UserResponse.model_validate(user).model_dump()
-    user_data["created_at"] = user_data["created_at"].isoformat() if user_data["created_at"] else None
-    if user_data["updated_at"]:
-        user_data["updated_at"] = user_data["updated_at"].isoformat()
+        raise HTTPException(status_code=403, detail="Email not verified. Please check your inbox.", headers={"X-Error-Code": "EMAIL_NOT_VERIFIED"})
+    return _build_token_response(user)
 
-    return TokenResponse(
-        access_token=access_token,
-        token_type="bearer",
-        user=user_data
-    )
+
+@router.post("/verify-email")
+def verify_email(payload: VerifyEmailRequest, db: Session = Depends(get_db)):
+    email = verify_email_token(payload.token, SALT_VERIFY)
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.is_verified:
+        return {"message": "Email is already verified."}
+    user.is_verified = True
+    db.commit()
+    db.refresh(user)
+    return _build_token_response(user)
+
 
 @router.post("/resend-verification")
 def resend_verification(payload: ResendVerificationRequest, db: Session = Depends(get_db)):
@@ -168,31 +105,34 @@ def resend_verification(payload: ResendVerificationRequest, db: Session = Depend
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     if user.is_verified:
-        raise HTTPException(status_code=400, detail="Email is already verified")
-        
-    verification_token = create_verification_token(user.email)
-    
+        raise HTTPException(status_code=400, detail="Email is already verified.", headers={"X-Error-Code": "ALREADY_VERIFIED"})
+    token = generate_email_token(user.email, SALT_VERIFY)
     from utils.email import send_verification_email
-    send_verification_email(user.email, verification_token)
-    
-    return {
-        "message": "Verification email resent"
-    }
+    send_verification_email(user.email, token)
+    return {"message": "Verification email has been resent."}
 
-@router.get("/verify-email")
-def verify_email(token: str, db: Session = Depends(get_db)):
-    email = verify_email_token(token)
-    if not email:
-        raise HTTPException(status_code=400, detail="Invalid or expired verification token")
-        
+
+@router.post("/forgot-password")
+def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == payload.email).first()
+    if user:
+        token = generate_email_token(user.email, SALT_RESET)
+        from utils.email import send_password_reset_email
+        send_password_reset_email(user.email, token)
+    return {"message": "If that email exists, a password reset link has been sent."}
+
+
+@router.post("/reset-password")
+def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
+    email = verify_email_token(payload.token, SALT_RESET)
     user = db.query(User).filter(User.email == email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-        
-    if user.is_verified:
-        return {"message": "Email is already verified"}
-        
-    user.is_verified = True
+    user.hashed_password = get_password_hash(payload.new_password)
     db.commit()
-    
-    return {"message": "Email verified successfully. You can now login."}
+    return {"message": "Password has been reset successfully. Please log in."}
+
+
+@router.get("/me", response_model=UserResponse)
+def me(current_user: User = Depends(get_current_user)):
+    return current_user

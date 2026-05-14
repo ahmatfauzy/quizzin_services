@@ -3,37 +3,56 @@ from config.settings import settings
 
 resend.api_key = settings.RESEND_API_KEY
 
-def send_verification_email(to_email: str, token: str):
+
+def _send_email(to_email: str, subject: str, html_content: str) -> bool:
     if not settings.RESEND_API_KEY:
-        print(f"Skipping email send. RESEND_API_KEY not set. Token: {token}")
+        print(f"Skipping email. RESEND_API_KEY not set. Subject: {subject}")
         return False
-        
-    verification_link = f"{settings.URL_BASE}/auth/verify-email?token={token}"
-    
-    html_content = f"""
-    <h2>Verifikasi Email Kamu</h2>
-    <p>Halo,</p>
-    <p>Terima kasih telah mendaftar di <strong>{settings.RESEND_SENDER_NAME}</strong>. Silakan klik tombol di bawah ini untuk memverifikasi alamat email kamu:</p>
-    <br>
-    <a href="{verification_link}" style="display:inline-block;padding:12px 24px;color:white;background-color:#007BFF;text-decoration:none;border-radius:5px;font-weight:bold;">Verifikasi Email</a>
-    <br><br>
-    <p>Atau kamu bisa copy-paste tautan berikut ke browsermu:</p>
-    <p><a href="{verification_link}">{verification_link}</a></p>
-    <p>Tautan ini akan kedaluwarsa dalam 24 jam.</p>
-    <p>Jika kamu tidak merasa mendaftar, silakan abaikan email ini.</p>
-    """
-    
+
     params = {
         "from": f"{settings.RESEND_SENDER_NAME} <{settings.RESEND_SENDER_EMAIL}>",
         "to": [to_email],
-        "subject": "Verifikasi Email Pendaftaran",
+        "subject": subject,
         "html": html_content,
     }
-    
     try:
-        email = resend.Emails.send(params)
-        print("Email sent successfully!")
+        resend.Emails.send(params)
         return True
     except Exception as e:
-        print("Failed to send email:", e)
+        print(f"Failed to send email: {e}")
         return False
+
+
+def send_verification_email(to_email: str, token: str):
+    link = f"quizzin://verify-email?token={token}"
+    html = f"""
+    <h2>Verifikasi Email</h2>
+    <p>Halo,</p>
+    <p>Terima kasih telah mendaftar di <strong>{settings.RESEND_SENDER_NAME}</strong>.</p>
+    <p>Klik tombol di bawah untuk verifikasi alamat email kamu:</p>
+    <br>
+    <a href="{link}" style="display:inline-block;padding:12px 24px;color:white;background-color:#007BFF;text-decoration:none;border-radius:5px;font-weight:bold;">Verifikasi Email</a>
+    <br><br>
+    <p>Atau buka link berikut:</p>
+    <p><a href="{link}">{link}</a></p>
+    <p>Tautan berlaku 24 jam.</p>
+    """
+    return _send_email(to_email, "Verifikasi Email Pendaftaran", html)
+
+
+def send_password_reset_email(to_email: str, token: str):
+    link = f"quizzin://reset-password?token={token}"
+    html = f"""
+    <h2>Reset Password</h2>
+    <p>Halo,</p>
+    <p>Kami menerima permintaan reset password untuk akunmu di <strong>{settings.RESEND_SENDER_NAME}</strong>.</p>
+    <p>Klik tombol di bawah untuk membuat password baru:</p>
+    <br>
+    <a href="{link}" style="display:inline-block;padding:12px 24px;color:white;background-color:#007BFF;text-decoration:none;border-radius:5px;font-weight:bold;">Reset Password</a>
+    <br><br>
+    <p>Atau buka link berikut:</p>
+    <p><a href="{link}">{link}</a></p>
+    <p>Tautan berlaku 24 jam.</p>
+    <p>Jika kamu tidak meminta reset, abaikan email ini.</p>
+    """
+    return _send_email(to_email, "Reset Password", html)

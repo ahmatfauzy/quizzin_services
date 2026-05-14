@@ -1,12 +1,9 @@
 fastapi[standard]
 sqlalchemy
 pydantic-settings
-authlib
 pyjwt
-google-auth
 psycopg2-binary
 alembic
-httpx
 itsdangerous
 requests
 passlib[bcrypt]
@@ -16,3 +13,4 @@ a2wsgi
 cloudinary
 pymupdf
 python-multipart
+groq

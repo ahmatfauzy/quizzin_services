@@ -26,8 +26,11 @@ from database.database import Base
 # import all models here
 from models.user import User
 from models.document import Document
-from models.quiz import Quiz
-from models.result import Result
+from models.chapter import Chapter
+from models.question import Question
+from models.quiz_attempt import QuizAttempt
+from models.chapter_mastery import ChapterMastery
+from models.notification import Notification
 
 # override sqlalchemy.url
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
