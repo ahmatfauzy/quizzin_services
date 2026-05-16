@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFile, File, Form, Request
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, date
 
@@ -16,6 +16,7 @@ from schemas.document import (
 from utils.dependencies import get_current_user
 from utils.cloudinary_service import upload_pdf, delete_file
 from utils.adaptive import calc_activity_score
+from utils.logger import log_action
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -66,6 +67,7 @@ def process_pdf(document_id: int, pdf_bytes: bytes):
 @router.post("/upload", response_model=DocumentUploadResponse, status_code=202)
 async def upload_document(
     background_tasks: BackgroundTasks,
+    request: Request,
     title: str = Form(...),
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
@@ -89,6 +91,7 @@ async def upload_document(
     db.commit()
     db.refresh(doc)
     background_tasks.add_task(process_pdf, doc.id, file_bytes)
+    log_action(current_user.id, "upload_document", "/documents/upload", f"title={title}, file={file.filename}", request.client.host)
     return doc
 
 
@@ -176,7 +179,7 @@ def get_status(document_id: int, current_user: User = Depends(get_current_user),
 
 
 @router.delete("/{document_id}")
-def delete_document(document_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def delete_document(document_id: int, request: Request, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     doc = db.query(Document).filter(Document.id == document_id, Document.user_id == current_user.id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -184,4 +187,5 @@ def delete_document(document_id: int, current_user: User = Depends(get_current_u
         delete_file(doc.cloudinary_public_id, "raw")
     db.delete(doc)
     db.commit()
+    log_action(current_user.id, "delete_document", f"/documents/{document_id}", f"title={doc.title}", request.client.host)
     return {"message": "Document deleted successfully."}

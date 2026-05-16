@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from datetime import timedelta, date
 
@@ -15,6 +15,7 @@ from utils.security import (
 )
 from utils.dependencies import get_current_user
 from config.settings import settings
+from utils.logger import log_action
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -49,7 +50,7 @@ def _build_token_response(user: User) -> TokenResponse:
 
 
 @router.post("/register", status_code=201)
-def register(payload: RegisterRequest, db: Session = Depends(get_db)):
+def register(payload: RegisterRequest, request: Request, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == payload.email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -67,6 +68,8 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     from utils.email import send_verification_email
     send_verification_email(new_user.email, token)
 
+    log_action(new_user.id, "register", "/auth/register", f"email={new_user.email}", request.client.host)
+
     return {
         "message": "Registration successful. Please check your email to verify your account.",
         "user": {"id": new_user.id, "full_name": new_user.full_name, "email": new_user.email, "is_verified": False},
@@ -74,7 +77,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
+def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
     if not user or not user.hashed_password:
         raise HTTPException(status_code=401, detail="Invalid email or password")
@@ -82,11 +85,12 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not user.is_verified:
         raise HTTPException(status_code=403, detail="Email not verified. Please check your inbox.", headers={"X-Error-Code": "EMAIL_NOT_VERIFIED"})
+    log_action(user.id, "login", "/auth/login", f"email={user.email}", request.client.host)
     return _build_token_response(user)
 
 
 @router.post("/verify-email")
-def verify_email(payload: VerifyEmailRequest, db: Session = Depends(get_db)):
+def verify_email(payload: VerifyEmailRequest, request: Request, db: Session = Depends(get_db)):
     email = verify_email_token(payload.token, SALT_VERIFY)
     user = db.query(User).filter(User.email == email).first()
     if not user:
@@ -96,6 +100,7 @@ def verify_email(payload: VerifyEmailRequest, db: Session = Depends(get_db)):
     user.is_verified = True
     db.commit()
     db.refresh(user)
+    log_action(user.id, "verify_email", "/auth/verify-email", f"email={user.email}", request.client.host)
     return _build_token_response(user)
 
 
@@ -113,23 +118,25 @@ def resend_verification(payload: ResendVerificationRequest, db: Session = Depend
 
 
 @router.post("/forgot-password")
-def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
+def forgot_password(payload: ForgotPasswordRequest, request: Request, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
     if user:
         token = generate_email_token(user.email, SALT_RESET)
         from utils.email import send_password_reset_email
         send_password_reset_email(user.email, token)
+        log_action(user.id, "forgot_password", "/auth/forgot-password", f"email={user.email}", request.client.host)
     return {"message": "If that email exists, a password reset link has been sent."}
 
 
 @router.post("/reset-password")
-def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
+def reset_password(payload: ResetPasswordRequest, request: Request, db: Session = Depends(get_db)):
     email = verify_email_token(payload.token, SALT_RESET)
     user = db.query(User).filter(User.email == email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     user.hashed_password = get_password_hash(payload.new_password)
     db.commit()
+    log_action(user.id, "reset_password", "/auth/reset-password", f"email={user.email}", request.client.host)
     return {"message": "Password has been reset successfully. Please log in."}
 
 

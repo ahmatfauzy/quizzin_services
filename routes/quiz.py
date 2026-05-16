@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from datetime import date
 
@@ -18,6 +18,7 @@ from utils.dependencies import get_current_user
 from utils.nlp_service import generate_questions
 from utils.semantic import score_mcq, score_essay
 from utils.adaptive import suggest_next_difficulty, calculate_xp, update_streak
+from utils.logger import log_action
 
 router = APIRouter(prefix="/quizzes", tags=["Quizzes"])
 
@@ -25,7 +26,7 @@ ESTIMATED_TIMES = {"easy": 300, "medium": 600, "hots": 1200}
 
 
 @router.post("/generate", response_model=GenerateQuizResponse, status_code=201)
-def gen_quiz(payload: GenerateQuizRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def gen_quiz(payload: GenerateQuizRequest, request: Request, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     chapter = db.query(Chapter).filter(Chapter.id == payload.chapter_id).first()
     if not chapter:
         raise HTTPException(status_code=404, detail="Chapter not found")
@@ -71,6 +72,8 @@ def gen_quiz(payload: GenerateQuizRequest, current_user: User = Depends(get_curr
             hint=question.hint, options=opts,
         ))
 
+    log_action(current_user.id, "generate_quiz", "/quizzes/generate", f"chapter={chapter.title}, difficulty={difficulty}, count={len(questions_out)}", request.client.host)
+
     return GenerateQuizResponse(
         attempt_id=attempt.id, chapter_id=chapter.id,
         chapter_title=chapter.title, difficulty=difficulty,
@@ -81,7 +84,7 @@ def gen_quiz(payload: GenerateQuizRequest, current_user: User = Depends(get_curr
 
 
 @router.post("/{attempt_id}/submit", response_model=SubmitQuizResponse)
-def submit_quiz(attempt_id: int, payload: SubmitQuizRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def submit_quiz(attempt_id: int, payload: SubmitQuizRequest, request: Request, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     attempt = db.query(QuizAttempt).filter(QuizAttempt.id == attempt_id, QuizAttempt.user_id == current_user.id).first()
     if not attempt:
         raise HTTPException(status_code=404, detail="Quiz attempt not found")
@@ -152,6 +155,8 @@ def submit_quiz(attempt_id: int, payload: SubmitQuizRequest, current_user: User 
     next_diff = suggest_next_difficulty(scores)
 
     result_items = [QuizResultItem(**r) for r in results]
+
+    log_action(current_user.id, "submit_quiz", f"/quizzes/{attempt_id}/submit", f"score={final_score}, xp={xp}", request.client.host)
 
     return SubmitQuizResponse(
         attempt_id=attempt.id, chapter_title=chapter.title if chapter else None,
