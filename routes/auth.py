@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from datetime import timedelta, date
 
@@ -143,3 +144,52 @@ def reset_password(payload: ResetPasswordRequest, request: Request, db: Session 
 @router.get("/me", response_model=UserResponse)
 def me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.get("/verify-email", response_class=HTMLResponse)
+def verify_email_page(token: str = Query(...), db: Session = Depends(get_db)):
+    try:
+        email = verify_email_token(token, SALT_VERIFY)
+    except HTTPException as e:
+        return HTMLResponse(
+            f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Verifikasi Email</title>
+<style>body{{font-family:sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f4f4f4}} .card{{background:#fff;padding:40px;border-radius:12px;text-align:center;max-width:400px;box-shadow:0 2px 10px rgba(0,0,0,0.1)}} h2{{margin:0 0 8px}} p{{color:#666}}</style>
+</head><body><div class="card"><h2>❌ Gagal</h2><p>{e.detail}</p></div></body></html>""",
+            status_code=400,
+        )
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        return HTMLResponse(
+            """<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Verifikasi Email</title>
+<style>body{font-family:sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f4f4f4} .card{background:#fff;padding:40px;border-radius:12px;text-align:center;max-width:400px;box-shadow:0 2px 10px rgba(0,0,0,0.1)} h2{margin:0 0 8px} p{color:#666}</style>
+</head><body><div class="card"><h2>❌ Gagal</h2><p>User tidak ditemukan.</p></div></body></html>""",
+            status_code=404,
+        )
+
+    if user.is_verified:
+        return HTMLResponse(
+            """<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Verifikasi Email</title>
+<style>body{font-family:sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f4f4f4} .card{background:#fff;padding:40px;border-radius:12px;text-align:center;max-width:400px;box-shadow:0 2px 10px rgba(0,0,0,0.1)} h2{margin:0 0 8px} p{color:#666}</style>
+</head><body><div class="card"><h2>✅ Sudah Terverifikasi</h2><p>Email kamu sudah diverifikasi sebelumnya. Silakan login di aplikasi.</p></div></body></html>""",
+        )
+
+    user.is_verified = True
+    db.commit()
+    db.refresh(user)
+
+    return HTMLResponse(
+        """<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Verifikasi Email</title>
+<style>body{font-family:sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f4f4f4} .card{background:#fff;padding:40px;border-radius:12px;text-align:center;max-width:400px;box-shadow:0 2px 10px rgba(0,0,0,0.1)} h2{margin:0 0 8px} p{color:#666}</style>
+</head><body><div class="card"><h2>✅ Verifikasi Berhasil!</h2><p>Email kamu sudah berhasil diverifikasi. Silakan login di aplikasi.</p></div></body></html>""",
+    )
+
+
+@router.get("/reset-password", response_class=HTMLResponse)
+def reset_password_page(token: str = Query(...)):
+    return HTMLResponse(
+        f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Reset Password</title>
+<style>body{{font-family:sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f4f4f4}} .card{{background:#fff;padding:40px;border-radius:12px;max-width:400px;box-shadow:0 2px 10px rgba(0,0,0,0.1)}} h2{{margin:0 0 12px;text-align:center}} input{{width:100%;padding:10px;margin:8px 0;border:1px solid #ddd;border-radius:8px;box-sizing:border-box}} button{{width:100%;padding:12px;background:#0056FF;color:#fff;border:none;border-radius:8px;font-size:16px;cursor:pointer;margin-top:8px}} .msg{{text-align:center;color:green;display:none;margin-top:12px}} .err{{text-align:center;color:red;display:none;margin-top:12px}}</style>
+</head><body><div class="card"><h2>Reset Password</h2><form id="form"><input type="password" id="pw" placeholder="Password baru" minlength="6" required><input type="password" id="cpw" placeholder="Konfirmasi password baru" minlength="6" required><button type="submit">Reset Password</button></form><p class="msg" id="msg">Password berhasil direset! Silakan login di aplikasi.</p><p class="err" id="err"></p></div>
+<script>document.getElementById('form').addEventListener('submit',async function(e){{e.preventDefault();var pw=document.getElementById('pw').value;var cpw=document.getElementById('cpw').value;if(pw!==cpw){{document.getElementById('err').style.display='block';document.getElementById('err').textContent='Password tidak cocok!';return}}var r=await fetch('/auth/reset-password',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{token:'{token}',new_password:pw}})}});var d=await r.json();if(r.ok){{document.getElementById('form').style.display='none';document.getElementById('msg').style.display='block'}}else{{document.getElementById('err').style.display='block';document.getElementById('err').textContent=d.detail||'Gagal'}}}});</script></body></html>""",
+    )
