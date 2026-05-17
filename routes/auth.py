@@ -1,3 +1,5 @@
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
@@ -5,6 +7,7 @@ from datetime import timedelta, date
 
 from database.database import get_db
 from models.user import User
+from models.face_data import FaceData
 from schemas.auth import (
     TokenResponse, RegisterRequest, LoginRequest, VerifyEmailRequest,
     ResendVerificationRequest, ForgotPasswordRequest, ResetPasswordRequest,
@@ -21,7 +24,11 @@ from utils.logger import log_action
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
-def _build_user_dict(user: User) -> dict:
+def _build_user_dict(user: User, db: Optional[Session] = None) -> dict:
+    has_face = False
+    if db is not None:
+        has_face = db.query(FaceData).filter(FaceData.user_id == user.id).first() is not None
+
     return {
         "id": user.id,
         "full_name": user.full_name,
@@ -34,10 +41,11 @@ def _build_user_dict(user: User) -> dict:
         "subjects_mastered": user.subjects_mastered or 0,
         "is_verified": user.is_verified,
         "created_at": user.created_at.isoformat() if user.created_at else None,
+        "has_face": has_face,
     }
 
 
-def _build_token_response(user: User) -> TokenResponse:
+def _build_token_response(user: User, db: Optional[Session] = None) -> TokenResponse:
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": str(user.id)},
@@ -46,7 +54,7 @@ def _build_token_response(user: User) -> TokenResponse:
     return TokenResponse(
         access_token=access_token,
         token_type="bearer",
-        user=_build_user_dict(user),
+        user=_build_user_dict(user, db),
     )
 
 
@@ -87,7 +95,7 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
     if not user.is_verified:
         raise HTTPException(status_code=403, detail="Email not verified. Please check your inbox.", headers={"X-Error-Code": "EMAIL_NOT_VERIFIED"})
     log_action(user.id, "login", "/auth/login", f"email={user.email}", request.client.host)
-    return _build_token_response(user)
+    return _build_token_response(user, db)
 
 
 @router.post("/verify-email")
@@ -102,7 +110,7 @@ def verify_email(payload: VerifyEmailRequest, request: Request, db: Session = De
     db.commit()
     db.refresh(user)
     log_action(user.id, "verify_email", "/auth/verify-email", f"email={user.email}", request.client.host)
-    return _build_token_response(user)
+    return _build_token_response(user, db)
 
 
 @router.post("/resend-verification")

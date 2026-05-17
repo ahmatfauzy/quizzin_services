@@ -31,6 +31,7 @@ from models.question import Question
 from models.quiz_attempt import QuizAttempt
 from models.chapter_mastery import ChapterMastery
 from models.notification import Notification
+from models.face_data import FaceData
 
 # override sqlalchemy.url
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
 from database.database import engine, Base
 from config.settings import settings
-from routes import auth, document, chapter, quiz, analytics, profile, dashboard, notifications
+from routes import auth, document, chapter, quiz, analytics, profile, dashboard, notifications, face_auth
 
 from models.user import User
 from models.document import Document
@@ -11,6 +11,7 @@ from models.question import Question
 from models.quiz_attempt import QuizAttempt
 from models.chapter_mastery import ChapterMastery
 from models.notification import Notification
+from models.face_data import FaceData
 
 Base.metadata.create_all(bind=engine)
 
@@ -30,6 +31,7 @@ app.include_router(chapter.router)
 app.include_router(quiz.router)
 app.include_router(analytics.router)
 app.include_router(notifications.router)
+app.include_router(face_auth.router)
 
 
 @app.get("/")
