@@ -33,7 +33,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
 def generate_email_token(email: str, salt: str) -> str:
     return _serializer.dumps(email, salt=salt)
 
-def verify_email_token(token: str, salt: str, max_age: int = 86400) -> str:
+def verify_email_token(token: str, salt: str, max_age: int = 600) -> str:
     try:
         return _serializer.loads(token, salt=salt, max_age=max_age)
     except SignatureExpired:

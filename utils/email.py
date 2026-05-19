@@ -36,7 +36,7 @@ def send_verification_email(to_email: str, token: str):
     <br><br>
     <p>Atau buka link berikut di browser:</p>
     <p><a href="{web_link}">{web_link}</a></p>
-    <p>Tautan berlaku 24 jam.</p>
+    <p>Tautan berlaku 10 menit.</p>
     <hr>
     <p style="font-size:12px;color:#888;">Link aplikasi: <a href="{app_link}">{app_link}</a></p>
     """
@@ -56,7 +56,7 @@ def send_password_reset_email(to_email: str, token: str):
     <br><br>
     <p>Atau buka link berikut di browser:</p>
     <p><a href="{web_link}">{web_link}</a></p>
-    <p>Tautan berlaku 24 jam.</p>
+    <p>Tautan berlaku 10 menit.</p>
     <p>Jika kamu tidak meminta reset, abaikan email ini.</p>
     <hr>
     <p style="font-size:12px;color:#888;">Link aplikasi: <a href="{app_link}">{app_link}</a></p>
