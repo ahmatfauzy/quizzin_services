@@ -34,7 +34,7 @@ Guidelines:
 - 5-15 key entities (concepts, theorems, people, methods)
 - Define meaningful relationships"""
 
-QUESTION_GEN_PROMPT = """You are an expert educator. Given chapter text and difficulty level, generate quiz questions.
+QUESTION_GEN_PROMPT = """You are an expert educator. Given chapter text and difficulty level, generate exactly 20 quiz questions: 15 multiple choice and 5 essay questions.
 
 Output strict JSON only, no markdown:
 {
@@ -58,11 +58,13 @@ Output strict JSON only, no markdown:
 }
 
 IMPORTANT:
-- For essay/short_answer: options = null, correct_answer = null, hint = null
-- For multiple_choice: 4 options required (A, B, C, D)
+- Generate EXACTLY 15 multiple_choice questions first, then EXACTLY 5 essay questions (total 20)
+- For essay questions: question_type = "essay", options = null, correct_answer = null, hint = null
+- For multiple_choice: 4 options required (A, B, C, D), correct_answer is the key letter (A/B/C/D)
 - Vary difficulty: easy (recall), medium (application), hots (analysis)
 - Each question MUST have reference_facts for scoring
-- question_description should provide extra context when the question_text alone is vague"""
+- question_description should provide extra context when the question_text alone is vague
+- Essay questions should test deeper understanding, synthesis, and explanation of concepts"""
 
 
 def _call_groq(system_prompt: str, user_content: str, temperature: float = 0.3, max_tokens: int = 2048) -> dict | str:

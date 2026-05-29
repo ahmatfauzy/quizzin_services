@@ -22,7 +22,7 @@ from utils.logger import log_action
 
 router = APIRouter(prefix="/quizzes", tags=["Quizzes"])
 
-ESTIMATED_TIMES = {"easy": 300, "medium": 600, "hots": 1200}
+ESTIMATED_TIMES = {"easy": 900, "medium": 1200, "hots": 1800}
 
 
 @router.post("/generate", response_model=GenerateQuizResponse, status_code=201)
@@ -34,7 +34,7 @@ def gen_quiz(payload: GenerateQuizRequest, request: Request, current_user: User 
         raise HTTPException(status_code=400, detail="Chapter has no extracted text")
 
     difficulty = payload.difficulty if payload.difficulty in ("easy", "medium", "hots") else "medium"
-    count = 5 if difficulty == "easy" else 10
+    count = 20
     questions_raw = generate_questions(chapter.raw_text, difficulty, count)
 
     attempt = QuizAttempt(user_id=current_user.id, chapter_id=chapter.id, difficulty=Difficulty(difficulty), answers=[])
