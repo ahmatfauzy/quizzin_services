@@ -28,7 +28,8 @@ def process_pdf(document_id: int, pdf_bytes: bytes):
     from database.database import SessionLocal
     from models.chapter import Chapter
     from utils.pdf_service import extract_chapters
-    from utils.nlp_service import generate_summary, generate_knowledge_graph
+    from utils.nlp_service import generate_summary, generate_knowledge_graph, generate_questions
+    from models.question import Question, QuestionType, Difficulty
 
     db = SessionLocal()
     doc = db.query(Document).filter(Document.id == document_id).first()
@@ -54,6 +55,30 @@ def process_pdf(document_id: int, pdf_bytes: bytes):
                 page_start=ch["page_start"], page_end=ch["page_end"],
             )
             db.add(chapter)
+            db.flush()  # Ensure chapter gets an ID
+
+            for diff in ["easy", "medium", "hots"]:
+                questions_raw = generate_questions(ch["text"], diff, count=20)
+                for q in questions_raw:
+                    qtype_raw = str(q.get("question_type", "multiple_choice")).lower().strip()
+                    if "essay" in qtype_raw:
+                        qtype = QuestionType.essay
+                    elif "short_answer" in qtype_raw:
+                        qtype = QuestionType.short_answer
+                    else:
+                        qtype = QuestionType.multiple_choice
+
+                    question = Question(
+                        chapter_id=chapter.id, subject_tag=q.get("subject_tag"),
+                        question_text=q["question_text"],
+                        question_description=q.get("question_description"),
+                        hint=q.get("hint"),
+                        question_type=qtype, difficulty=Difficulty(diff),
+                        options=q.get("options"), correct_answer=q.get("correct_answer"),
+                        reference_facts=q.get("reference_facts", []),
+                    )
+                    db.add(question)
+
         doc.status = DocumentStatus.ready
         db.commit()
     except Exception as e:

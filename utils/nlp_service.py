@@ -60,6 +60,7 @@ Output strict JSON only, no markdown:
 IMPORTANT:
 - Generate EXACTLY 15 multiple_choice questions first, then EXACTLY 5 essay questions (total 20)
 - For essay questions: question_type = "essay", options = null, correct_answer = null, hint = null
+- For essay questions: question_description MUST NOT be null. Provide a brief scenario, context, or case study to help the student answer.
 - For multiple_choice: 4 options required (A, B, C, D), correct_answer is the key letter (A/B/C/D)
 - Vary difficulty: easy (recall), medium (application), hots (analysis)
 - Each question MUST have reference_facts for scoring
@@ -102,13 +103,13 @@ def generate_knowledge_graph(chapter_text: str) -> dict:
     return {"core_concept": None, "modules": [], "entities": [], "relations": []}
 
 
-def generate_questions(chapter_text: str, difficulty: str = "medium", count: int = 10) -> list[dict]:
+def generate_questions(chapter_text: str, difficulty: str = "medium", count: int = 20) -> list[dict]:
     if not chapter_text or len(chapter_text.strip()) < 50:
         print(f"[NLP] Chapter text too short ({len(chapter_text)} chars), skipping")
         return []
     truncated = chapter_text[:6000]
-    prompt = QUESTION_GEN_PROMPT + f"\n\nGenerate exactly {count} questions at '{difficulty}' difficulty level."
-    result = _call_groq(prompt, truncated, temperature=0.3, max_tokens=2048)
+    prompt = QUESTION_GEN_PROMPT + f"\n\nGenerate exactly {count} questions at '{difficulty}' difficulty level. VERY IMPORTANT: You must return ALL {count} questions in the JSON array."
+    result = _call_groq(prompt, truncated, temperature=0.3, max_tokens=4096)
     if isinstance(result, dict) and "error" in result:
         print(f"[NLP] Question generation failed: {result['error']}")
         return []

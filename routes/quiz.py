@@ -34,8 +34,41 @@ def gen_quiz(payload: GenerateQuizRequest, request: Request, current_user: User 
         raise HTTPException(status_code=400, detail="Chapter has no extracted text")
 
     difficulty = payload.difficulty if payload.difficulty in ("easy", "medium", "hots") else "medium"
-    count = 20
-    questions_raw = generate_questions(chapter.raw_text, difficulty, count)
+    
+    questions = db.query(Question).filter(Question.chapter_id == chapter.id, Question.difficulty == difficulty).all()
+    
+    mcqs = [q for q in questions if q.question_type == QuestionType.multiple_choice][:15]
+    essays = [q for q in questions if q.question_type == QuestionType.essay][:5]
+    selected_questions = mcqs + essays
+    
+    if len(selected_questions) < 20:
+        count = 20
+        questions_raw = generate_questions(chapter.raw_text, difficulty, count)
+        for q in questions_raw:
+            qtype_raw = str(q.get("question_type", "multiple_choice")).lower().strip()
+            if "essay" in qtype_raw:
+                qtype = QuestionType.essay
+            elif "short_answer" in qtype_raw:
+                qtype = QuestionType.short_answer
+            else:
+                qtype = QuestionType.multiple_choice
+
+            question = Question(
+                chapter_id=chapter.id, subject_tag=q.get("subject_tag"),
+                question_text=q["question_text"],
+                question_description=q.get("question_description"),
+                hint=q.get("hint"),
+                question_type=qtype, difficulty=Difficulty(difficulty),
+                options=q.get("options"), correct_answer=q.get("correct_answer"),
+                reference_facts=q.get("reference_facts", []),
+            )
+            db.add(question)
+        db.commit()
+        
+        questions = db.query(Question).filter(Question.chapter_id == chapter.id, Question.difficulty == difficulty).all()
+        mcqs = [q for q in questions if q.question_type == QuestionType.multiple_choice][:15]
+        essays = [q for q in questions if q.question_type == QuestionType.essay][:5]
+        selected_questions = mcqs + essays
 
     attempt = QuizAttempt(user_id=current_user.id, chapter_id=chapter.id, difficulty=Difficulty(difficulty), answers=[])
     db.add(attempt)
@@ -43,22 +76,7 @@ def gen_quiz(payload: GenerateQuizRequest, request: Request, current_user: User 
     db.refresh(attempt)
 
     questions_out = []
-    for i, q in enumerate(questions_raw, start=1):
-        qtype_str = q.get("question_type", "multiple_choice")
-        qtype = QuestionType(qtype_str) if qtype_str in ("multiple_choice", "essay", "short_answer") else QuestionType.multiple_choice
-
-        question = Question(
-            chapter_id=chapter.id, subject_tag=q.get("subject_tag"),
-            question_text=q["question_text"],
-            question_description=q.get("question_description"),
-            hint=q.get("hint"),
-            question_type=qtype, difficulty=Difficulty(difficulty),
-            options=q.get("options"), correct_answer=q.get("correct_answer"),
-            reference_facts=q.get("reference_facts", []),
-        )
-        db.add(question)
-        db.commit()
-        db.refresh(question)
+    for i, question in enumerate(selected_questions, start=1):
 
         opts = None
         if question.options:
