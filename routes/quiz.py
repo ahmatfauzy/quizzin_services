@@ -70,6 +70,9 @@ def gen_quiz(payload: GenerateQuizRequest, request: Request, current_user: User 
         essays = [q for q in questions if q.question_type == QuestionType.essay][:5]
         selected_questions = mcqs + essays
 
+        if len(selected_questions) < 15:
+            raise HTTPException(status_code=500, detail="Failed to generate enough questions due to AI service limit or timeout. Please try again.")
+
     attempt = QuizAttempt(user_id=current_user.id, chapter_id=chapter.id, difficulty=Difficulty(difficulty), answers=[])
     db.add(attempt)
     db.commit()

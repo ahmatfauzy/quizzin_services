@@ -2,7 +2,7 @@ import json
 from groq import Groq
 from config.settings import settings
 
-_client = Groq(api_key=settings.GROQ_API_KEY)
+_client = Groq(api_key=settings.GROQ_API_KEY, timeout=120.0)
 
 SUMMARY_PROMPT = """You are an expert academic summarizer. Given a chapter from an academic textbook, write a concise, well-structured summary in the same language as the original text.
 
@@ -58,14 +58,15 @@ Output strict JSON only, no markdown:
 }
 
 IMPORTANT:
-- Generate EXACTLY 15 multiple_choice questions first, then EXACTLY 5 essay questions (total 20)
-- For essay questions: question_type = "essay", options = null, correct_answer = null, hint = null
-- For essay questions: question_description MUST NOT be null. Provide a brief scenario, context, or case study to help the student answer.
-- For multiple_choice: 4 options required (A, B, C, D), correct_answer is the key letter (A/B/C/D)
-- Vary difficulty: easy (recall), medium (application), hots (analysis)
-- Each question MUST have reference_facts for scoring
-- question_description should provide extra context when the question_text alone is vague
-- Essay questions should test deeper understanding, synthesis, and explanation of concepts"""
+- Generate EXACTLY 15 multiple_choice questions first, then EXACTLY 5 essay questions (total 20).
+- Keep all text (descriptions, hints, facts, options) as brief and concise as possible to avoid exceeding output size limits!
+- For essay questions: question_type = "essay", options = null, correct_answer = null, hint = null.
+- For essay questions: question_description MUST NOT be null. Provide a brief scenario or context.
+- For multiple_choice: 4 options required (A, B, C, D), correct_answer is the key letter (A/B/C/D).
+- Vary difficulty: easy (recall), medium (application), hots (analysis).
+- Each question MUST have reference_facts for scoring (1-2 short sentences max).
+- Essay questions should test deeper understanding, synthesis, and explanation."""
+
 
 
 def _call_groq(system_prompt: str, user_content: str, temperature: float = 0.3, max_tokens: int = 2048) -> dict | str:
@@ -109,7 +110,7 @@ def generate_questions(chapter_text: str, difficulty: str = "medium", count: int
         return []
     truncated = chapter_text[:6000]
     prompt = QUESTION_GEN_PROMPT + f"\n\nGenerate exactly {count} questions at '{difficulty}' difficulty level. VERY IMPORTANT: You must return ALL {count} questions in the JSON array."
-    result = _call_groq(prompt, truncated, temperature=0.3, max_tokens=4096)
+    result = _call_groq(prompt, truncated, temperature=0.3, max_tokens=8192)
     if isinstance(result, dict) and "error" in result:
         print(f"[NLP] Question generation failed: {result['error']}")
         return []
