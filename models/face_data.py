@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text
 from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 from database.database import Base
 
 
@@ -13,4 +13,4 @@ class FaceData(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    user = relationship("User", backref="face_data")
+    user = relationship("User", backref=backref("face_data", cascade="all, delete-orphan", passive_deletes=True))

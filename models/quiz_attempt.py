@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, Float, ForeignKey, DateTime, Enum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 from database.database import Base
 from models.question import Difficulty
 
@@ -19,5 +19,5 @@ class QuizAttempt(Base):
     time_taken_seconds = Column(Integer, nullable=True)
     completed_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    user = relationship("User", backref="quiz_attempts")
+    user = relationship("User", backref=backref("quiz_attempts", cascade="all, delete-orphan", passive_deletes=True))
     chapter = relationship("Chapter", back_populates="quiz_attempts")

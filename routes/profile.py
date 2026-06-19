@@ -63,3 +63,12 @@ def change_password(payload: ChangePasswordRequest, request: Request, current_us
     db.commit()
     log_action(current_user.id, "change_password", "/profile/change-password", "", request.client.host)
     return {"message": "Password changed successfully."}
+
+
+@router.delete("")
+def delete_account(request: Request, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    user_id = current_user.id
+    db.delete(current_user)
+    db.commit()
+    log_action(user_id, "delete_account", "/profile", "", request.client.host)
+    return {"message": "Account deleted successfully."}
