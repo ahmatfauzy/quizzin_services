@@ -6,6 +6,7 @@ from datetime import datetime, date
 class UserResponse(BaseModel):
     id: int
     email: EmailStr
+    role: str = "user"
     full_name: Optional[str] = None
     avatar_url: Optional[str] = None
     academic_level: Optional[str] = None

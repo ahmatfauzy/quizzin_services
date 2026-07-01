@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "llama3-70b-8192"
     
+    # Big Data / Scheduling
+    MONGODB_URL: str
+    REDIS_URL: str
+    SCRAPE_INTERVAL_MINUTES: int
+
     class Config:
         env_file = os.path.join(APP_ROOT, ".env")
         extra = "ignore"

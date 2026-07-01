@@ -17,7 +17,7 @@ KNOWLEDGE_GRAPH_PROMPT = """You are an expert knowledge engineer. Extract the co
 Output strict JSON only, no markdown:
 {
   "core_concept": {"title": "Main Concept", "label": "Core Concept"},
-  "modules": [
+  "modules": [  
     {"module_number": "4.1", "title": "Sub Topic", "icon_type": "book"}
   ],
   "entities": ["Entity1", "Entity2"],

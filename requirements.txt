@@ -14,3 +14,6 @@ cloudinary
 pymupdf
 python-multipart
 groq
+pymongo
+redis
+apscheduler

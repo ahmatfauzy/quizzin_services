@@ -42,6 +42,7 @@ def _build_user_dict(user: User, db: Optional[Session] = None) -> dict:
         "is_verified": user.is_verified,
         "created_at": user.created_at.isoformat() if user.created_at else None,
         "has_face": has_face,
+        "role": getattr(user, 'role', 'user'),
     }
 
 
