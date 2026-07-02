@@ -159,6 +159,30 @@ def list_documents(current_user: User = Depends(get_current_user), db: Session =
     return {"documents": items}
 
 
+@router.get("/shared/{document_id}", response_model=DocumentDetailResponse)
+def get_shared_document(document_id: int, db: Session = Depends(get_db)):
+    doc = db.query(Document).filter(Document.id == document_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    from schemas.document import ChapterSummaryItem
+    chapters_out = []
+    for ch in doc.chapters:
+        chapters_out.append(ChapterSummaryItem(
+            id=ch.id, chapter_number=ch.chapter_number, title=ch.title,
+            mastery_percentage=0.0, is_completed=False, is_locked=False,
+            status_icon="not_started", action_label="Explore Concepts",
+            page_start=ch.page_start, page_end=ch.page_end,
+        ))
+
+    return DocumentDetailResponse(
+        id=doc.id, title=doc.title, original_filename=doc.original_filename,
+        total_pages=doc.total_pages, total_chapters=len(doc.chapters),
+        status=doc.status.value if doc.status else "processing",
+        created_at=doc.created_at, chapters=chapters_out,
+    )
+
+
 @router.get("/{document_id}", response_model=DocumentDetailResponse)
 def get_document(document_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     doc = db.query(Document).filter(Document.id == document_id, Document.user_id == current_user.id).first()

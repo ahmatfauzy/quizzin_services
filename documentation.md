@@ -127,6 +127,7 @@ users (1) ──────< documents (N)
 | Kolom | Tipe | Keterangan |
 |---|---|---|
 | `id` | INT PK | Primary key |
+| `role` | VARCHAR | Peran pengguna (user, guru, admin) |
 | `email` | VARCHAR UNIQUE | Email pengguna |
 | `full_name` | VARCHAR | Nama lengkap |
 | `avatar_url` | VARCHAR | URL foto profil (Cloudinary) |
@@ -255,6 +256,7 @@ users (1) ──────< documents (N)
 | `POST` | `/documents/upload` | Upload PDF → Cloudinary → background processing (ekstraksi chapter + ringkasan AI) | ✓ |
 | `GET` | `/documents/` | List semua dokumen milik user | ✓ |
 | `GET` | `/documents/{id}` | Detail dokumen + daftar chapter (dengan mastery, lock status, action label) | ✓ |
+| `GET` | `/documents/shared/{id}` | Detail dokumen publik yang dishare via QR oleh Guru | ✗ |
 | `GET` | `/documents/{id}/status` | Polling status pemrosesan dokumen | ✓ |
 | `DELETE` | `/documents/{id}` | Hapus dokumen + file di Cloudinary | ✓ |
 
