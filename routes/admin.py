@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List
 import os
+from datetime import datetime, timedelta
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
@@ -70,36 +71,60 @@ def get_user_activity(user_id: int, current_user: User = Depends(check_admin)):
 
 # --- Application DB Analytics (PostgreSQL) ---
 @router.get("/analytics/appdata")
-def get_app_analytics(current_user: User = Depends(check_admin), db: Session = Depends(get_db)):
-    total_users = db.query(User).count()
-    total_documents = db.query(Document).count()
-    total_quiz_attempts = db.query(QuizAttempt).count()
+def get_app_analytics(period: str = "all", current_user: User = Depends(check_admin), db: Session = Depends(get_db)):
+    threshold_date = None
+    date_format = 'YYYY-MM'
+    
+    if period == "7d":
+        threshold_date = datetime.utcnow() - timedelta(days=7)
+        date_format = 'YYYY-MM-DD'
+    elif period == "30d":
+        threshold_date = datetime.utcnow() - timedelta(days=30)
+        date_format = 'YYYY-MM-DD'
+    elif period == "90d":
+        threshold_date = datetime.utcnow() - timedelta(days=90)
+        date_format = 'YYYY-MM-DD'
+
+    def apply_filter(query, date_column):
+        if threshold_date:
+            return query.filter(date_column >= threshold_date)
+        return query
+
+    total_users = apply_filter(db.query(User), User.created_at).count()
+    total_documents = apply_filter(db.query(Document), Document.created_at).count()
+    total_quiz_attempts = apply_filter(db.query(QuizAttempt), QuizAttempt.completed_at).count()
     
     # User roles breakdown
-    role_counts = db.query(User.role, func.count(User.id)).group_by(User.role).all()
+    role_query = apply_filter(db.query(User.role, func.count(User.id)), User.created_at).group_by(User.role)
+    role_counts = role_query.all()
     role_breakdown = [{"name": r[0] if r[0] else "user", "value": r[1]} for r in role_counts]
+    if not role_breakdown:
+        role_breakdown = [{"name": "user", "value": 0}, {"name": "admin", "value": 0}]
     
-    # 1. User Growth Over Time (grouped by month/year)
+    # 1. User Growth Over Time
     user_growth_query = db.query(
-        func.to_char(User.created_at, 'YYYY-MM').label('month'),
+        func.to_char(User.created_at, date_format).label('date'),
         func.count(User.id)
-    ).filter(User.created_at.isnot(None)).group_by('month').order_by('month').all()
-    user_growth = [{"date": r[0], "users": r[1]} for r in user_growth_query]
+    ).filter(User.created_at.isnot(None))
+    user_growth_query = apply_filter(user_growth_query, User.created_at).group_by('date').order_by('date')
+    user_growth = [{"date": r[0], "users": r[1]} for r in user_growth_query.all()]
     
-    # 2. Quiz Attempts & Average Score Trend (grouped by month/year)
+    # 2. Quiz Attempts & Average Score Trend
     quiz_trend_query = db.query(
-        func.to_char(QuizAttempt.completed_at, 'YYYY-MM').label('month'),
+        func.to_char(QuizAttempt.completed_at, date_format).label('date'),
         func.count(QuizAttempt.id),
         func.avg(QuizAttempt.total_score)
-    ).filter(QuizAttempt.completed_at.isnot(None)).group_by('month').order_by('month').all()
-    quiz_trend = [{"date": r[0], "attempts": r[1], "avg_score": round(r[2] or 0, 2)} for r in quiz_trend_query]
+    ).filter(QuizAttempt.completed_at.isnot(None))
+    quiz_trend_query = apply_filter(quiz_trend_query, QuizAttempt.completed_at).group_by('date').order_by('date')
+    quiz_trend = [{"date": r[0], "attempts": r[1], "avg_score": round(r[2] or 0, 2)} for r in quiz_trend_query.all()]
     
-    # 3. Peak Activity Times (grouped by hour of day)
+    # 3. Peak Activity Times
     peak_times_query = db.query(
         func.extract('hour', QuizAttempt.completed_at).label('hour'),
         func.count(QuizAttempt.id)
-    ).filter(QuizAttempt.completed_at.isnot(None)).group_by('hour').order_by('hour').all()
-    peak_times = [{"hour": f"{int(r[0]):02d}:00", "activity": r[1]} for r in peak_times_query]
+    ).filter(QuizAttempt.completed_at.isnot(None))
+    peak_times_query = apply_filter(peak_times_query, QuizAttempt.completed_at).group_by('hour').order_by('hour')
+    peak_times = [{"hour": f"{int(r[0]):02d}:00", "activity": r[1]} for r in peak_times_query.all()]
 
     return {
         "summary": {
@@ -112,6 +137,25 @@ def get_app_analytics(current_user: User = Depends(check_admin), db: Session = D
         "quiz_trend": quiz_trend,
         "peak_times": peak_times
     }
+
+# --- Document Management ---
+@router.get("/documents")
+def get_all_documents(current_user: User = Depends(check_admin), db: Session = Depends(get_db)):
+    docs = db.query(Document).order_by(Document.created_at.desc()).all()
+    items = []
+    for d in docs:
+        owner = db.query(User).filter(User.id == d.user_id).first()
+        items.append({
+            "id": d.id,
+            "title": d.title,
+            "owner_name": owner.full_name if owner else "Unknown",
+            "owner_email": owner.email if owner else "",
+            "status": d.status.value if d.status else "processing",
+            "created_at": d.created_at,
+            "total_pages": d.total_pages,
+            "chapters_count": len(d.chapters) if d.chapters else 0
+        })
+    return items
 
 # --- Big Data Analytics (MongoDB) ---
 @router.get("/analytics/bigdata")
