@@ -42,7 +42,11 @@ def _uvicorn_running():
 # Always kill old instance when passenger_wsgi is loaded (which happens on app restart)
 kill_old_uvicorn()
 
+LOG_FILE = os.path.join(APP_ROOT, "tmp", "uvicorn_debug.log")
+
 if not _uvicorn_running():
+    os.makedirs(os.path.join(APP_ROOT, "tmp"), exist_ok=True)
+    log_fd = open(LOG_FILE, "a")
     p = subprocess.Popen(
         [
             sys.executable, "-m", "uvicorn", "main:app",
@@ -50,18 +54,19 @@ if not _uvicorn_running():
         ],
         cwd=APP_ROOT,
         env=os.environ.copy(),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=log_fd,
+        stderr=log_fd,
     )
     # Save PID
-    os.makedirs(os.path.join(APP_ROOT, "tmp"), exist_ok=True)
     with open(PID_FILE, "w") as f:
         f.write(str(p.pid))
         
     for _ in range(10):
-        time.sleep(1)
+        if p.poll() is not None:
+            break
         if _uvicorn_running():
             break
+        time.sleep(1)
 
 def application(environ, start_response):
     path = environ.get("PATH_INFO", "/")

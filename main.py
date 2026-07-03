@@ -15,16 +15,31 @@ from models.face_data import FaceData
 
 Base.metadata.create_all(bind=engine)
 
+import asyncio
 from contextlib import asynccontextmanager
 from scheduler import start_scheduler
+
+scheduler_instance = None
+
+async def init_scheduler_async():
+    global scheduler_instance
+    loop = asyncio.get_running_loop()
+    try:
+        scheduler_instance = await loop.run_in_executor(None, start_scheduler)
+    except Exception as e:
+        print(f"Error starting scheduler background task: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    scheduler = start_scheduler()
+    task = asyncio.create_task(init_scheduler_async())
     yield
     # Shutdown
-    scheduler.shutdown()
+    if scheduler_instance:
+        try:
+            scheduler_instance.shutdown(wait=False)
+        except Exception:
+            pass
 
 app = FastAPI(
     title="Quizzin API",
