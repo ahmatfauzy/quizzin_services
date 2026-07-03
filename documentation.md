@@ -249,7 +249,7 @@ users (1) ──────< documents (N)
 |---|---|---|---|
 | `GET` | `/dashboard` | Home screen: greeting, overall progress, weekly activity, recent documents, AI tutor suggestion | ✓ |
 
-### 5.4 Documents (`/documents`) — 5 endpoint
+### 5.4 Documents (`/documents`) — 6 endpoint
 
 | Method | Endpoint | Deskripsi | Auth |
 |---|---|---|---|
@@ -257,6 +257,7 @@ users (1) ──────< documents (N)
 | `GET` | `/documents/` | List semua dokumen milik user | ✓ |
 | `GET` | `/documents/{id}` | Detail dokumen + daftar chapter (dengan mastery, lock status, action label) | ✓ |
 | `GET` | `/documents/shared/{id}` | Detail dokumen publik yang dishare via QR oleh Guru | ✗ |
+| `POST` | `/documents/scan/{id}` | Scan QR dokumen publik dan duplikasi dokumen ke akun pengguna saat ini | ✓ |
 | `GET` | `/documents/{id}/status` | Polling status pemrosesan dokumen | ✓ |
 | `DELETE` | `/documents/{id}` | Hapus dokumen + file di Cloudinary | ✓ |
 

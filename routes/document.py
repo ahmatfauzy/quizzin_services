@@ -215,6 +215,75 @@ def get_document(document_id: int, current_user: User = Depends(get_current_user
     )
 
 
+@router.post("/scan/{document_id}", response_model=DocumentDetailResponse)
+def scan_shared_document(
+    document_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    original_doc = db.query(Document).filter(Document.id == document_id).first()
+    if not original_doc:
+        raise HTTPException(status_code=404, detail="Shared document not found")
+
+    existing_doc = db.query(Document).filter(
+        Document.user_id == current_user.id,
+        Document.title == original_doc.title,
+        Document.cloudinary_public_id == original_doc.cloudinary_public_id
+    ).first()
+
+    if existing_doc:
+        return get_document(existing_doc.id, current_user, db)
+
+    from models.question import Question
+
+    new_doc = Document(
+        user_id=current_user.id,
+        title=original_doc.title,
+        original_filename=original_doc.original_filename,
+        cloudinary_url=original_doc.cloudinary_url,
+        cloudinary_public_id=original_doc.cloudinary_public_id,
+        total_pages=original_doc.total_pages,
+        status=original_doc.status
+    )
+    db.add(new_doc)
+    db.flush()
+
+    for ch in original_doc.chapters:
+        new_ch = Chapter(
+            document_id=new_doc.id,
+            chapter_number=ch.chapter_number,
+            title=ch.title,
+            raw_text=ch.raw_text,
+            summary=ch.summary,
+            knowledge_graph=ch.knowledge_graph,
+            page_start=ch.page_start,
+            page_end=ch.page_end
+        )
+        db.add(new_ch)
+        db.flush()
+
+        for q in ch.questions:
+            new_q = Question(
+                chapter_id=new_ch.id,
+                subject_tag=q.subject_tag,
+                question_text=q.question_text,
+                question_description=q.question_description,
+                hint=q.hint,
+                question_type=q.question_type,
+                difficulty=q.difficulty,
+                options=q.options,
+                correct_answer=q.correct_answer,
+                reference_facts=q.reference_facts
+            )
+            db.add(new_q)
+
+    db.commit()
+    db.refresh(new_doc)
+    log_action(current_user.id, "scan_document", f"/documents/scan/{document_id}", f"title={new_doc.title}", request.client.host)
+    return get_document(new_doc.id, current_user, db)
+
+
 @router.get("/{document_id}/status", response_model=DocumentStatusResponse)
 def get_status(document_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     doc = db.query(Document).filter(Document.id == document_id, Document.user_id == current_user.id).first()
