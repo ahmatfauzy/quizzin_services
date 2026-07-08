@@ -328,9 +328,14 @@ POST /quizzes/generate { chapter_id, difficulty }
 ```
 POST /quizzes/{id}/submit { answers }
   │
-  ├─ MCQ: exact match (score 100 atau 0)
-  ├─ Essay/Short Answer: Groq AI bandingkan jawaban vs reference_facts
+  ├─ **Scoring System (Semantic & Keyword-based)**:
+  ├─ MCQ: exact match (score 4.0 atau 0.0)
   │   └─ Return: { score, missing_concepts, feedback }
+  ├─ Short Answer/Essay: gabungan `semantic_similarity_local` dan LLM (Groq API)
+  │   ├─ Jika keyword lokal > 70%, tidak perlu memanggil LLM (hemat cost).
+  │   ├─ Jika tidak, Prompt Groq memberikan evaluasi `score`, `missing_concepts`, `feedback`.
+  │   └─ Nilai akhir essay dikonversi: 0, 2, 4, 6, atau 8 poin per pertanyaan.
+  └─ **Total Score**: Nilai keseluruhan dijumlahkan (misal: 15 MCQ x 4 = 60, 5 Essay x 8 = 40. Total maksimal = 100).
   ├─ Update mastery per chapter (rata-rata progresif)
   ├─ Update XP points + streak days
   ├─ Suggest next difficulty (adaptive)

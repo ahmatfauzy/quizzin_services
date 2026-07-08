@@ -112,32 +112,47 @@ def submit_quiz(attempt_id: int, payload: SubmitQuizRequest, request: Request, c
 
     chapter = db.query(Chapter).filter(Chapter.id == attempt.chapter_id).first()
     results = []
-    total = 0.0
+    total_points = 0.0
 
     for i, ans in enumerate(payload.answers, start=1):
         question = db.query(Question).filter(Question.id == ans.question_id).first()
         if not question:
             continue
+            
         if question.question_type == QuestionType.multiple_choice:
             scoring = score_mcq(ans.answer, question.correct_answer or "")
+            s = scoring.get("score", 0.0)
+            points = 4.0 if s >= 1.0 else 0.0
         else:
             scoring = score_essay(ans.answer, question.correct_answer or "", question.reference_facts or [])
-        s = scoring.get("score", 0.0)
-        total += s
+            s = scoring.get("score", 0.0)
+            # 0 jika kosong, 2-4 jika kurang tepat, dan 6-8 jika sempurna
+            if s == 0.0:
+                points = 0.0
+            elif s < 0.5:
+                points = 2.0
+            elif s < 0.75:
+                points = 4.0
+            elif s < 0.9:
+                points = 6.0
+            else:
+                points = 8.0
+                
+        total_points += points
+        
         results.append({
             "question_id": question.id, "order": i, "subject_tag": question.subject_tag,
             "question_text": question.question_text,
             "question_type": question.question_type.value,
             "user_answer": ans.answer,
             "correct_answer": question.correct_answer if question.question_type == QuestionType.multiple_choice else None,
-            "score": round(s * 100, 1),
+            "score": points,
             "is_correct": s >= 1.0 if question.question_type == QuestionType.multiple_choice else None,
             "feedback": scoring.get("feedback", ""),
             "missing_concepts": scoring.get("missing_concepts", []),
         })
 
-    qc = len(results)
-    final_score = round((total / qc) * 100, 1) if qc > 0 else 0.0
+    final_score = round(total_points, 1)
     xp = calculate_xp(final_score, attempt.difficulty.value if attempt.difficulty else "medium")
 
     attempt.total_score = final_score
