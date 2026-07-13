@@ -11,12 +11,13 @@ from models.chapter import Chapter
 from models.notification import Notification
 from schemas.document import (
     DocumentUploadResponse, DocumentStatusResponse, DocumentDetailResponse,
-    DocumentListResponse, DocumentListItem,
+    DocumentListResponse, DocumentListItem, ScannerListResponse, ScannerResultItem, StudentAttemptItem, StudentInsightsResponse
 )
 from utils.dependencies import get_current_user
 from utils.cloudinary_service import upload_pdf, delete_file
 from utils.adaptive import calc_activity_score
 from utils.logger import log_action
+from utils.nlp_service import _call_groq
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -233,6 +234,9 @@ def scan_shared_document(
     ).first()
 
     if existing_doc:
+        if existing_doc.original_document_id != original_doc.id:
+            existing_doc.original_document_id = original_doc.id
+            db.commit()
         return get_document(existing_doc.id, current_user, db)
 
     from models.question import Question
@@ -244,7 +248,8 @@ def scan_shared_document(
         cloudinary_url=original_doc.cloudinary_url,
         cloudinary_public_id=original_doc.cloudinary_public_id,
         total_pages=original_doc.total_pages,
-        status=original_doc.status
+        status=original_doc.status,
+        original_document_id=original_doc.id
     )
     db.add(new_doc)
     db.flush()
@@ -307,3 +312,131 @@ def delete_document(document_id: int, request: Request, current_user: User = Dep
     db.commit()
     log_action(current_user.id, "delete_document", f"/documents/{document_id}", f"title={doc.title}", request.client.host)
     return {"message": "Document deleted successfully."}
+
+@router.get("/{document_id}/scanners", response_model=ScannerListResponse)
+def get_document_scanners(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    original_doc = db.query(Document).filter(Document.id == document_id, Document.user_id == current_user.id).first()
+    if not original_doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    scanned_docs = db.query(Document).filter(Document.original_document_id == document_id).all()
+    
+    results = []
+    for sdoc in scanned_docs:
+        student = sdoc.user
+        chapters = sdoc.chapters
+        chapter_ids = [ch.id for ch in chapters]
+        
+        avg_mastery = 0.0
+        if chapter_ids:
+            masteries = db.query(ChapterMastery).filter(
+                ChapterMastery.user_id == student.id,
+                ChapterMastery.chapter_id.in_(chapter_ids)
+            ).all()
+            avg_mastery = sum(m.mastery_percentage for m in masteries) / len(chapter_ids)
+            
+        attempts = db.query(QuizAttempt).filter(
+            QuizAttempt.user_id == student.id,
+            QuizAttempt.chapter_id.in_(chapter_ids)
+        ).all() if chapter_ids else []
+        
+        total_score = sum(a.total_score for a in attempts)
+        total_attempts = len(attempts)
+        
+        mapped_attempts = [
+            StudentAttemptItem(
+                id=a.id,
+                chapter_title=a.chapter.title if getattr(a, 'chapter', None) else "Unknown Chapter",
+                total_score=a.total_score,
+                time_taken_seconds=a.time_taken_seconds,
+                completed_at=a.completed_at,
+                difficulty=a.difficulty.value if hasattr(a.difficulty, 'value') else str(a.difficulty)
+            ) for a in attempts
+        ]
+
+        results.append(ScannerResultItem(
+            user_id=student.id,
+            name=student.full_name or student.email.split("@")[0],
+            email=student.email,
+            avatar_url=student.avatar_url,
+            scanned_at=sdoc.created_at,
+            total_score=total_score,
+            total_attempts=total_attempts,
+            average_mastery=avg_mastery,
+            attempts=mapped_attempts
+        ))
+        
+    return ScannerListResponse(document_id=document_id, scanners=results)
+
+
+@router.get("/{document_id}/scanners/{user_id}/insights", response_model=StudentInsightsResponse)
+def get_student_insights(
+    document_id: int,
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    original_doc = db.query(Document).filter(Document.id == document_id, Document.user_id == current_user.id).first()
+    if not original_doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    student = db.query(User).filter(User.id == user_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    sdoc = db.query(Document).filter(Document.original_document_id == document_id, Document.user_id == user_id).first()
+    if not sdoc:
+        raise HTTPException(status_code=404, detail="Student has not scanned this document")
+
+    chapters = sdoc.chapters
+    chapter_ids = [ch.id for ch in chapters]
+    
+    attempts = db.query(QuizAttempt).filter(
+        QuizAttempt.user_id == user_id,
+        QuizAttempt.chapter_id.in_(chapter_ids)
+    ).order_by(QuizAttempt.completed_at.asc()).all() if chapter_ids else []
+
+    if not attempts:
+        return StudentInsightsResponse(insights=["Belum ada data pengerjaan kuis dari siswa ini untuk dapat dianalisis."])
+
+    # Prepare data for AI prompt
+    history_str = []
+    for a in attempts:
+        ch_title = a.chapter.title if getattr(a, 'chapter', None) else "Unknown"
+        diff = a.difficulty.value if hasattr(a.difficulty, 'value') else str(a.difficulty)
+        history_str.append(f"- Topik/Bab: {ch_title}, Skor: {a.total_score}, Waktu: {a.time_taken_seconds or 0} detik, Kesulitan: {diff}")
+    
+    history_text = "\n".join(history_str)
+
+    system_prompt = (
+        "Anda adalah asisten AI ahli dalam bidang pendidikan. Tugas Anda adalah memberikan 'insight' atau wawasan "
+        "kepada seorang guru mengenai performa belajar salah satu siswanya berdasarkan riwayat pengerjaan kuis. "
+        "Berikan poin-poin observasi mengenai kelemahan (misalnya penalaran, kecepatan vs akurasi), hal-hal "
+        "mencurigakan (waktu sangat cepat namun skor jelek yang menandakan asal-asalan), atau pujian jika performa stabil. "
+        "Balas DALAM BAHASA INDONESIA dan format respons WAJIB berupa JSON dengan struktur:\n"
+        "{\n"
+        "  \"insights\": [\n"
+        "    \"Poin wawasan pertama...\",\n"
+        "    \"Poin wawasan kedua...\"\n"
+        "  ]\n"
+        "}"
+    )
+
+    user_content = (
+        f"Nama Siswa: {student.full_name or student.email}\n"
+        f"Materi: {original_doc.title}\n"
+        f"Riwayat Pengerjaan Kuis:\n{history_text}\n\n"
+        "Berikan maksimal 3 poin insight terbaik Anda untuk membantu saya sebagai guru dalam melakukan pendekatan atau evaluasi kepada siswa ini."
+    )
+
+    ai_response = _call_groq(system_prompt, user_content, temperature=0.5, max_tokens=1024)
+    
+    if isinstance(ai_response, dict) and "insights" in ai_response:
+        return StudentInsightsResponse(insights=ai_response["insights"])
+    else:
+        # Fallback if AI fails to return valid JSON
+        return StudentInsightsResponse(insights=["Gagal mendapatkan insight dari AI. Coba beberapa saat lagi."])

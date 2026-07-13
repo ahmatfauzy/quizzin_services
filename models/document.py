@@ -23,6 +23,7 @@ class Document(Base):
     total_pages = Column(Integer, nullable=True)
     status = Column(Enum(DocumentStatus), default=DocumentStatus.processing)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    original_document_id = Column(Integer, ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)
 
     user = relationship("User", backref=backref("documents", cascade="all, delete-orphan", passive_deletes=True))
     chapters = relationship("Chapter", back_populates="document", cascade="all, delete-orphan")

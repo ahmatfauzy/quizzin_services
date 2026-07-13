@@ -70,3 +70,32 @@ class DocumentDetailResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class StudentAttemptItem(BaseModel):
+    id: int
+    chapter_title: str
+    total_score: float
+    time_taken_seconds: Optional[int] = None
+    completed_at: datetime
+    difficulty: str
+
+    class Config:
+        from_attributes = True
+
+class ScannerResultItem(BaseModel):
+    user_id: int
+    name: str
+    email: str
+    avatar_url: Optional[str] = None
+    scanned_at: datetime
+    total_score: float = 0.0
+    total_attempts: int = 0
+    average_mastery: float = 0.0
+    attempts: List[StudentAttemptItem] = []
+
+class ScannerListResponse(BaseModel):
+    document_id: int
+    scanners: List[ScannerResultItem]
+
+class StudentInsightsResponse(BaseModel):
+    insights: List[str]
