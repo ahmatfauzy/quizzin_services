@@ -169,9 +169,11 @@ def get_bigdata_analytics(current_user: User = Depends(check_admin)):
         db = client.latihanbigdata
         collection = db.sampledata
         
-        # Example aggregation: Average literacy rate by year for global data (filtered for years 2000-2023)
+        current_year = str(datetime.now().year)
+        
+        # Example aggregation: Average literacy rate by year for global data (filtered for years 2000-current)
         pipeline_yearly = [
-            {"$match": {"year": {"$gte": "2000", "$lte": "2023"}, "value": {"$gte": 0}}},
+            {"$match": {"year": {"$gte": "2000", "$lte": current_year}, "value": {"$gte": 0}}},
             {"$group": {"_id": "$year", "avg_literacy": {"$avg": "$value"}}},
             {"$sort": {"_id": 1}}
         ]
@@ -186,6 +188,13 @@ def get_bigdata_analytics(current_user: User = Depends(check_admin)):
         ]
         country_data = list(collection.aggregate(pipeline_countries))
         
+        # Indonesia specific trend
+        pipeline_indonesia = [
+            {"$match": {"country_name": "Indonesia", "year": {"$gte": "2000", "$lte": current_year}, "value": {"$gte": 0}}},
+            {"$sort": {"year": 1}}
+        ]
+        indonesia_data = list(collection.aggregate(pipeline_indonesia))
+        
         import math
         def clean_val(val):
             if val is None: return 0
@@ -194,7 +203,8 @@ def get_bigdata_analytics(current_user: User = Depends(check_admin)):
             
         return {
             "yearly_trend": [{"year": item["_id"], "rate": clean_val(item.get("avg_literacy"))} for item in yearly_data if item["_id"] is not None],
-            "top_countries": [{"country": item["_id"], "rate": clean_val(item.get("avg_literacy"))} for item in country_data if item["_id"] is not None]
+            "top_countries": [{"country": item["_id"], "rate": clean_val(item.get("avg_literacy"))} for item in country_data if item["_id"] is not None],
+            "indonesia_trend": [{"year": item.get("year"), "rate": clean_val(item.get("value"))} for item in indonesia_data if item.get("year") is not None]
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
