@@ -86,6 +86,34 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
     }
 
 
+@router.post("/register-guru", status_code=201)
+def register_guru(payload: RegisterRequest, request: Request, db: Session = Depends(get_db)):
+    if db.query(User).filter(User.email == payload.email).first():
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    new_user = User(
+        email=payload.email,
+        full_name=payload.full_name,
+        hashed_password=get_password_hash(payload.password),
+        is_verified=False,
+        role="guru"
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    token = generate_email_token(new_user.email, SALT_VERIFY)
+    from utils.email import send_verification_email
+    send_verification_email(new_user.email, token)
+
+    log_action(new_user.id, "register_guru", "/auth/register-guru", f"email={new_user.email}", request.client.host)
+
+    return {
+        "message": "Guru registration successful. Please check your email to verify your account.",
+        "user": {"id": new_user.id, "full_name": new_user.full_name, "email": new_user.email, "is_verified": False, "role": "guru"},
+    }
+
+
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
